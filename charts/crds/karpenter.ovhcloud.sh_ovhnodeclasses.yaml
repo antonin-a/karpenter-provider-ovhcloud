@@ -1,0 +1,95 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ovhnodeclasses.karpenter.ovhcloud.sh
+spec:
+  group: karpenter.ovhcloud.sh
+  names:
+    kind: OVHNodeClass
+    listKind: OVHNodeClassList
+    plural: ovhnodeclasses
+    shortNames:
+      - ovhnc
+      - ovhncs
+    singular: ovhnodeclass
+    categories:
+      - karpenter
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - serviceName
+                - kubeId
+                - region
+                - credentialsSecretRef
+              properties:
+                serviceName:
+                  type: string
+                  description: OVHcloud Public Cloud project ID
+                  pattern: "^[a-f0-9]{32}$"
+                kubeId:
+                  type: string
+                  description: OVHcloud MKS cluster ID
+                region:
+                  type: string
+                  description: OVHcloud region (e.g., GRA7, SBG5, EU-WEST-PAR)
+                credentialsSecretRef:
+                  type: object
+                  required:
+                    - name
+                    - namespace
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                monthlyBilled:
+                  type: boolean
+                  default: false
+                antiAffinity:
+                  type: boolean
+                  default: false
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                discoveredFlavors:
+                  type: array
+                  items:
+                    type: string

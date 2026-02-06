@@ -13,3 +13,17 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+package ovhcloud
+
+const (
+	// ProviderPrefix is the prefix for OVH provider IDs
+	// Format: openstack:///{instanceId} - matches what OVH MKS sets on nodes
+	ProviderPrefix = "openstack:///"
+
+	// PoolNamePrefix is the prefix for Karpenter-managed pools
+	PoolNamePrefix = "karpenter-"
+
+	// DefaultDesiredNodes is the default number of nodes for a new pool
+	DefaultDesiredNodes = 1
+)

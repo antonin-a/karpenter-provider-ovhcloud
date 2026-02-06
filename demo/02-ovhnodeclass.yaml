@@ -1,0 +1,39 @@
+# Karpenter OVHcloud Demo - OVHNodeClass (Basic)
+# Usage: envsubst < 02-ovhnodeclass.yaml | kubectl apply -f -
+#
+# Required environment variables:
+#   - OVH_SERVICE_NAME (OVHcloud Project ID)
+#   - OVH_KUBE_ID (MKS Cluster ID)
+#   - OVH_REGION (e.g., EU-WEST-PAR, GRA7, SBG5)
+---
+apiVersion: karpenter.ovhcloud.sh/v1alpha1
+kind: OVHNodeClass
+metadata:
+  name: default
+spec:
+  # OVHcloud Public Cloud Project ID (32 hex characters)
+  serviceName: "${OVH_SERVICE_NAME}"
+
+  # OVHcloud MKS Cluster ID
+  kubeId: "${OVH_KUBE_ID}"
+
+  # OVHcloud Region (e.g., EU-WEST-PAR, EU-SOUTH-MIL, GRA7, SBG5)
+  region: "${OVH_REGION}"
+
+  # Reference to Secret containing OVH API credentials
+  credentialsSecretRef:
+    name: ovh-credentials
+    namespace: karpenter
+
+  # Monthly billing (~50% savings for 24/7 nodes)
+  # Set to true for production long-running workloads
+  monthlyBilled: false
+
+  # Anti-affinity spreads nodes across hypervisors
+  # Limited to max 5 nodes per pool when enabled
+  antiAffinity: false
+
+  # Custom tags applied to OVH Node Pools
+  tags:
+    demo: karpenter-ovhcloud
+    managed-by: karpenter

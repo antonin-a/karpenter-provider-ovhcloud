@@ -1,0 +1,18 @@
+apiVersion: v2
+name: karpenter-provider-ovhcloud
+description: Karpenter OVHcloud Provider - Kubernetes Node Autoscaling for OVHcloud MKS
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - karpenter
+  - kubernetes
+  - autoscaling
+  - ovhcloud
+  - mks
+home: https://github.com/ovh/karpenter-provider-ovhcloud
+sources:
+  - https://github.com/ovh/karpenter-provider-ovhcloud
+  - https://github.com/kubernetes-sigs/karpenter
+maintainers:
+  - name: OVHcloud

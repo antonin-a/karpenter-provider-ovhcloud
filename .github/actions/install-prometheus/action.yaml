@@ -1,9 +1,0 @@
-name: InstallPrometheus
-description: 'Installs prometheus'
-runs:
-  using: "composite"
-  steps:
-    - name: install
-      shell: bash
-      run: |
-        hack/install-prometheus.sh

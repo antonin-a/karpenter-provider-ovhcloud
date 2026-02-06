@@ -1,0 +1,38 @@
+# Karpenter OVHcloud Demo - Small Workload
+# Usage: kubectl apply -f 06-small-workload.yaml
+#
+# This deployment requests minimal resources.
+# Expected: Karpenter selects b3-8 (smallest suitable flavor)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: small-app
+  namespace: default
+  labels:
+    app: small-app
+    demo: karpenter-ovhcloud
+    size: small
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: small-app
+  template:
+    metadata:
+      labels:
+        app: small-app
+        demo: karpenter-ovhcloud
+        size: small
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: app
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

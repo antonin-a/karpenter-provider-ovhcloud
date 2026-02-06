@@ -1,0 +1,51 @@
+# Karpenter OVHcloud Demo - Multi-Flavor NodePool
+# Usage: kubectl apply -f 05-nodepool-multi-flavor.yaml
+#
+# This NodePool demonstrates intelligent flavor selection:
+#   - Multiple flavor options from small to large
+#   - Karpenter selects optimal flavor based on workload
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: multi-flavor
+spec:
+  template:
+    metadata:
+      labels:
+        demo: karpenter-ovhcloud
+        pool: multi-flavor
+    spec:
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+
+      requirements:
+        # Multiple flavor options - Karpenter selects optimal
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - b3-8     # 2 vCPUs, 8 GiB RAM   - Small
+            - b3-16    # 4 vCPUs, 16 GiB RAM  - Medium
+            - b3-32    # 8 vCPUs, 32 GiB RAM  - Large
+            - b3-64    # 16 vCPUs, 64 GiB RAM - XLarge
+
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+      expireAfter: 720h
+
+  # Higher limits for multi-flavor demo
+  limits:
+    cpu: 100
+    memory: 200Gi
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m

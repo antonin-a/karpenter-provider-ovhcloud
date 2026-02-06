@@ -1,0 +1,40 @@
+# Karpenter OVHcloud Demo - Large Workload
+# Usage: kubectl apply -f 07-large-workload.yaml
+#
+# This deployment requests significant resources.
+# Expected: Karpenter selects b3-32 or larger (8+ vCPUs, 32+ GiB)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: large-app
+  namespace: default
+  labels:
+    app: large-app
+    demo: karpenter-ovhcloud
+    size: large
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: large-app
+  template:
+    metadata:
+      labels:
+        app: large-app
+        demo: karpenter-ovhcloud
+        size: large
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: app
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            # Request 6 CPUs and 20Gi RAM
+            # This requires at least b3-32 (8 vCPUs, 32 GiB)
+            requests:
+              cpu: "6"
+              memory: "20Gi"
+            limits:
+              cpu: "6"
+              memory: "20Gi"

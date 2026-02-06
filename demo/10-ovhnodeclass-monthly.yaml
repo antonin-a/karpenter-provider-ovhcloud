@@ -1,0 +1,28 @@
+# Karpenter OVHcloud Demo - OVHNodeClass with Monthly Billing
+# Usage: envsubst < 10-ovhnodeclass-monthly.yaml | kubectl apply -f -
+#
+# Monthly billing provides ~50% cost savings for nodes that run 24/7.
+# Best for: Production workloads, long-running services
+---
+apiVersion: karpenter.ovhcloud.sh/v1alpha1
+kind: OVHNodeClass
+metadata:
+  name: monthly-billing
+spec:
+  serviceName: "${OVH_SERVICE_NAME}"
+  kubeId: "${OVH_KUBE_ID}"
+  region: "${OVH_REGION}"
+  credentialsSecretRef:
+    name: ovh-credentials
+    namespace: karpenter
+
+  # Enable monthly billing for cost savings
+  # ~50% cheaper than hourly billing for 24/7 usage
+  monthlyBilled: true
+
+  antiAffinity: false
+
+  tags:
+    demo: karpenter-ovhcloud
+    billing: monthly
+    environment: production

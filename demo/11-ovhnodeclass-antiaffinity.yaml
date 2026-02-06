@@ -1,0 +1,30 @@
+# Karpenter OVHcloud Demo - OVHNodeClass with Anti-Affinity
+# Usage: envsubst < 11-ovhnodeclass-antiaffinity.yaml | kubectl apply -f -
+#
+# Anti-affinity spreads nodes across different physical hypervisors.
+# Provides additional resilience against hardware failures.
+# LIMITATION: Max 5 nodes per pool when anti-affinity is enabled.
+---
+apiVersion: karpenter.ovhcloud.sh/v1alpha1
+kind: OVHNodeClass
+metadata:
+  name: high-availability
+spec:
+  serviceName: "${OVH_SERVICE_NAME}"
+  kubeId: "${OVH_KUBE_ID}"
+  region: "${OVH_REGION}"
+  credentialsSecretRef:
+    name: ovh-credentials
+    namespace: karpenter
+
+  monthlyBilled: false
+
+  # Enable anti-affinity for hardware-level redundancy
+  # Nodes are spread across different physical hypervisors
+  # WARNING: Limited to max 5 nodes per pool
+  antiAffinity: true
+
+  tags:
+    demo: karpenter-ovhcloud
+    tier: critical
+    ha: anti-affinity

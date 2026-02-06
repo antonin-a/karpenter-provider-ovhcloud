@@ -1,0 +1,64 @@
+# Karpenter OVHcloud Demo - Basic NodePool
+# Usage: kubectl apply -f 03-nodepool-basic.yaml
+#
+# This NodePool demonstrates basic autoscaling with:
+#   - Two flavor options (b3-8, b3-16)
+#   - On-demand capacity only
+#   - Consolidation enabled (1 minute)
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: demo-pool
+spec:
+  template:
+    metadata:
+      labels:
+        # Label for easy identification of demo nodes
+        demo: karpenter-ovhcloud
+    spec:
+      # Reference to OVHNodeClass
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+
+      # Node requirements
+      requirements:
+        # Instance types (OVHcloud flavors)
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - b3-8    # 2 vCPUs, 8 GiB RAM
+            - b3-16   # 4 vCPUs, 16 GiB RAM
+
+        # Architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        # OS
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # Capacity type (OVHcloud only supports on-demand)
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+      # Node expiration (30 days)
+      expireAfter: 720h
+
+  # Resource limits for this NodePool
+  limits:
+    cpu: 20
+    memory: 40Gi
+
+  # Disruption settings for consolidation
+  disruption:
+    # Consolidate when empty or underutilized
+    consolidationPolicy: WhenEmptyOrUnderutilized
+
+    # Wait 1 minute before consolidating
+    consolidateAfter: 1m

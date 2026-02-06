@@ -1,43 +1,102 @@
 name: Release
+
 on:
   push:
-    tags: ['v*.*.*']
-permissions:
-  contents: read
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
-  release:
-    env:
-      TAG: ${{ github.ref_name }}
-    permissions:
-      contents: write # Needed for creating and editing releases
-      id-token: write # Needed for cosigning build attestation files with tejolote
+  build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  helm-release:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run vexctl
-        uses: openvex/generate-vex@31b415924ea0d72ed5f2640f1dee59dea6c2770b
-        with:
-          product: pkg:generic/karpenter@${{ env.TAG }}
-          file: karpenter.vex.json
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
 
-      - name: Create Github Release
-        uses: marvinpinto/action-automatic-releases@919008cf3f741b179569b7a6fb4d8860689ab7f0 # v1.2.1
-        with:
-          files: |
-            karpenter.vex.json
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
+      - name: Update chart version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          sed -i "s/^version:.*/version: ${VERSION}/" charts/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/Chart.yaml
+          sed -i "s/tag:.*/tag: \"${VERSION}\"/" charts/values.yaml
 
-      - name: Install tejolote
-        uses: kubernetes-sigs/release-actions/setup-tejolote@8af7b2a5596dff526de9db59b2c4b8457e9f52a1 # v0.4.0
-      - name: Run tejolote
+      - name: Package Helm chart
         run: |
-          tejolote attest "github://kubernetes-sigs/karpenter/${{ github.run_id }}" --artifacts "github://kubernetes-sigs/karpenter/$TAG" --output karpenter.intoto.json --sign
-      - name: Add the tejolote provenance attestation to release
-        env:
-          GH_TOKEN: ${{ github.token }}
+          helm package charts/ -d .helm-releases/
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm chart to OCI registry
         run: |
-          gh release upload "$TAG" karpenter.intoto.json
+          helm push .helm-releases/*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: .helm-releases/*.tgz
+          generate_release_notes: true

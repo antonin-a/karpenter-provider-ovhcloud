@@ -16,9 +16,36 @@ limitations under the License.
 
 package v1alpha1
 
-import "sigs.k8s.io/karpenter/pkg/apis"
+import (
+	"github.com/ovh/karpenter-provider-ovhcloud/pkg/apis"
+	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
+)
 
 const (
-	PriceOverlayAppliedAnnotationKey    = apis.Group + "/price-overlay-applied"
-	CapacityOverlayAppliedAnnotationKey = apis.Group + "/capacity-overlay-applied"
+	// Instance labels
+	LabelInstanceCategory = apis.Group + "/instance-category" // b2, c2, r2, t2, etc.
+	LabelInstanceCPU      = apis.Group + "/instance-cpu"
+	LabelInstanceMemory   = apis.Group + "/instance-memory"
+	LabelInstanceFamily   = apis.Group + "/instance-family"
+	LabelInstanceSize     = apis.Group + "/instance-size"
+
+	// Pool tracking
+	LabelPoolID   = apis.Group + "/pool-id"
+	LabelPoolName = apis.Group + "/pool-name"
+
+	// Annotations for tracking NodeClaim to Node mapping
+	AnnotationOVHPoolID   = apis.Group + "/pool-id"
+	AnnotationOVHNodeID   = apis.Group + "/node-id"
+	AnnotationOVHNodeName = apis.Group + "/node-name"
 )
+
+func init() {
+	v1.RestrictedLabelDomains = v1.RestrictedLabelDomains.Insert(apis.Group)
+	v1.WellKnownLabels = v1.WellKnownLabels.Insert(
+		LabelInstanceCategory,
+		LabelInstanceCPU,
+		LabelInstanceMemory,
+		LabelInstanceFamily,
+		LabelInstanceSize,
+	)
+}

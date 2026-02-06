@@ -1,0 +1,48 @@
+# Karpenter OVHcloud Demo - Zone-Spread Deployment
+# Usage: kubectl apply -f 09-zone-spread.yaml
+#
+# This deployment uses topologySpreadConstraints to distribute
+# pods evenly across availability zones for high availability.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ha-app
+  namespace: default
+  labels:
+    app: ha-app
+    demo: karpenter-ovhcloud
+    ha: zone-spread
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: ha-app
+  template:
+    metadata:
+      labels:
+        app: ha-app
+        demo: karpenter-ovhcloud
+        ha: zone-spread
+    spec:
+      terminationGracePeriodSeconds: 0
+
+      # Topology spread constraint for zone distribution
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: ha-app
+
+      containers:
+        - name: app
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

@@ -1,0 +1,27 @@
+---
+# OVHNodeClass defines OVHcloud-specific configuration for Karpenter nodes
+apiVersion: karpenter.ovhcloud.sh/v1alpha1
+kind: OVHNodeClass
+metadata:
+  name: default
+spec:
+  # OVHcloud Public Cloud Project ID (32 hex characters)
+  serviceName: "c5866bf8b2bf4b72a1c50c5efa57209a"
+
+  # MKS Cluster ID
+  kubeId: "019c2e67-9920-7bd9-a597-6abfc7f1b4c4"
+
+  # OVHcloud region
+  region: "EU-WEST-PAR"
+
+  # Reference to Secret containing OVH API credentials
+  credentialsSecretRef:
+    name: ovh-credentials
+    namespace: karpenter
+
+  # Optional: Enable monthly billing (cheaper for long-running nodes)
+  monthlyBilled: false
+
+  # Optional: Enable anti-affinity (spreads nodes across hypervisors)
+  # Note: Max 5 nodes per pool when enabled
+  antiAffinity: false

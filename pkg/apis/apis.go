@@ -20,25 +20,18 @@ import (
 	_ "embed"
 
 	"github.com/awslabs/operatorpkg/object"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 const (
-	Group              = "karpenter.sh"
-	CompatibilityGroup = "compatibility." + Group
+	Group = "karpenter.ovhcloud.sh"
 )
 
-//go:generate go tool -modfile=../../go.tools.mod controller-gen crd object:headerFile="../../hack/boilerplate.go.txt" paths="./..." output:crd:artifacts:config=crds
+//go:generate controller-gen crd object:headerFile="../../hack/boilerplate.go.txt" paths="./..." output:crd:artifacts:config=crds
 var (
-	//go:embed crds/karpenter.sh_nodepools.yaml
-	NodePoolCRD []byte
-	//go:embed crds/karpenter.sh_nodeclaims.yaml
-	NodeClaimCRD []byte
-	//go:embed crds/karpenter.sh_nodeoverlays.yaml
-	NodeOverlayCRD []byte
-	CRDs           = []*apiextensionsv1.CustomResourceDefinition{
-		object.Unmarshal[apiextensionsv1.CustomResourceDefinition](NodePoolCRD),
-		object.Unmarshal[apiextensionsv1.CustomResourceDefinition](NodeClaimCRD),
-		object.Unmarshal[apiextensionsv1.CustomResourceDefinition](NodeOverlayCRD),
+	//go:embed crds/karpenter.ovhcloud.sh_ovhnodeclasses.yaml
+	OVHNodeClassCRD []byte
+	CRDs            = []*v1.CustomResourceDefinition{
+		object.Unmarshal[v1.CustomResourceDefinition](OVHNodeClassCRD),
 	}
 )

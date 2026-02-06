@@ -1,72 +1,275 @@
-[![Build Status](https://img.shields.io/github/actions/workflow/status/aws/karpenter-core/presubmit.yaml?branch=main)](https://github.com/aws/karpenter-core/actions/workflows/presubmit.yaml)
-![GitHub stars](https://img.shields.io/github/stars/aws/karpenter-core)
-![GitHub forks](https://img.shields.io/github/forks/aws/karpenter-core)
-[![GitHub License](https://img.shields.io/badge/License-Apache%202.0-ff69b4.svg)](https://github.com/aws/karpenter-core/blob/main/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aws/karpenter-core)](https://goreportcard.com/report/github.com/aws/karpenter-core)
-[![Coverage Status](https://coveralls.io/repos/github/aws/karpenter-core/badge.svg?branch=main)](https://coveralls.io/github/aws/karpenter-core?branch=main)
-[![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/aws/karpenter-core/issues)
+<p align="center">
+  <img src="docs/images/logo.png" alt="Karpenter Provider OVHcloud" width="400">
+</p>
 
-# Karpenter
+<p align="center">
+  <a href="https://github.com/ovh/karpenter-provider-ovhcloud/actions"><img src="https://img.shields.io/github/actions/workflow/status/ovh/karpenter-provider-ovhcloud/ci.yaml?branch=main" alt="Build Status"></a>
+  <a href="https://github.com/ovh/karpenter-provider-ovhcloud/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
+  <a href="https://goreportcard.com/report/github.com/ovh/karpenter-provider-ovhcloud"><img src="https://goreportcard.com/badge/github.com/ovh/karpenter-provider-ovhcloud" alt="Go Report Card"></a>
+  <a href="https://github.com/ovh/karpenter-provider-ovhcloud/stargazers"><img src="https://img.shields.io/github/stars/ovh/karpenter-provider-ovhcloud" alt="GitHub Stars"></a>
+  <a href="https://github.com/ovh/karpenter-provider-ovhcloud/issues"><img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg" alt="Contributions Welcome"></a>
+</p>
+
+<p align="center">
+  <b>Autoscale OVHcloud MKS cluster nodes efficiently and cost-effectively.</b>
+</p>
+
+---
+
+## Overview
+
+Karpenter is an open-source node provisioning project built for Kubernetes. This provider enables Karpenter to work with **OVHcloud Managed Kubernetes Service (MKS)**.
 
 Karpenter improves the efficiency and cost of running workloads on Kubernetes clusters by:
 
-* **Watching** for pods that the Kubernetes scheduler has marked as unschedulable
-* **Evaluating** scheduling constraints (resource requests, nodeselectors, affinities, tolerations, and topology spread constraints) requested by the pods
-* **Provisioning** nodes that meet the requirements of the pods
-* **Removing** the nodes when the nodes are no longer needed
+- **Watching** for pods that the Kubernetes scheduler has marked as unschedulable
+- **Evaluating** scheduling constraints (resource requests, nodeselectors, affinities, tolerations, and topology spread constraints)
+- **Provisioning** nodes via OVHcloud MKS node pools that meet the requirements
+- **Removing** nodes when they are no longer needed
 
-## Karpenter Implementations
-Karpenter is a multi-cloud project with implementations by the following cloud providers:
-- [AWS](https://github.com/aws/karpenter-provider-aws)
-- [Azure](https://github.com/Azure/karpenter-provider-azure)
-- [AlibabaCloud](https://github.com/cloudpilot-ai/karpenter-provider-alibabacloud)
-- [Bizfly Cloud](https://github.com/bizflycloud/karpenter-provider-bizflycloud)
-- [Cluster API](https://github.com/kubernetes-sigs/karpenter-provider-cluster-api)
-- [GCP](https://github.com/cloudpilot-ai/karpenter-provider-gcp)
-- [IBM Cloud](https://github.com/kubernetes-sigs/karpenter-provider-ibm-cloud)
-- [Proxmox](https://github.com/sergelogvinov/karpenter-provider-proxmox)
-- [Oracle Cloud Infrastructure (OCI) - Provided by Zoom](https://github.com/zoom/karpenter-oci)
+## Scope & Deployment Mode
 
-## Community, discussion, contribution, and support
+> **This is a Karpenter provider for OVHcloud Managed Kubernetes Service (MKS).**
 
-If you have any questions or want to get the latest project news, you can connect with us in the following ways:
-- __Using and Deploying Karpenter?__ Reach out in the [#karpenter](https://kubernetes.slack.com/archives/C02SFFZSA2K) channel in the [Kubernetes slack](https://slack.k8s.io/) to ask questions about configuring or troubleshooting Karpenter.
-- __Contributing to or Developing with Karpenter?__ Join the [#karpenter-dev](https://kubernetes.slack.com/archives/C04JW2J5J5P) channel in the [Kubernetes slack](https://slack.k8s.io/) to ask in-depth questions about contribution or to get involved in design discussions.
+### Deployment Mode: Self-hosted
 
-### Working Group Meetings
-Bi-weekly meetings alternating between Thursdays @ 9:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=9:00&tz=Seattle)) and Thursdays @ 15:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=15:00&tz=Seattle))
+This provider is available in **self-hosted mode**. You deploy and manage Karpenter yourself on your MKS cluster using Helm.
 
-### Issue Triage Meetings
-Weekly meetings alternating between repositories and time slots. Please check the calendar invite for specific dates:
+| Mode | Status | Description |
+|------|--------|-------------|
+| Self-hosted | ✅ Available | Deploy Karpenter yourself via Helm |
 
-**kubernetes-sigs/karpenter**:
-- Alternating Mondays @ 9:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=9:00&tz=Seattle)) and @ 15:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=15:00&tz=Seattle)) monthly
+### Cluster Compatibility
 
-**aws/karpenter-provider-aws**:
-- Alternating Mondays @ 9:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=9:00&tz=Seattle)) and @ 15:00 PT ([convert to your timezone](http://www.thetimezoneconverter.com/?t=15:00&tz=Seattle)) monthly
+This provider uses the MKS Node Pool APIs and is designed exclusively for OVHcloud Managed Kubernetes Service.
 
-#### Meeting Resources
-- **Zoom Link**: [Join Meeting](https://zoom.us/j/95618088729) (password: 77777)
-- **Calendar**: Subscribe to our [Google Calendar](https://calendar.google.com/calendar/u/0?cid=N3FmZGVvZjVoZWJkZjZpMnJrMmplZzVqYmtAZ3JvdXAuY2FsZW5kYXIuZ29vZ2xlLmNvbQ)
-- **Meeting Notes**: View our [Working Group Log](https://docs.google.com/document/d/18BT0AIMugpNpiSPJNlcAL2rv69yAE6Z06gUVj7v_clg/edit?usp=sharing)
+| Cluster Type | Supported |
+|--------------|-----------|
+| OVHcloud MKS (Managed Kubernetes) | ✅ Yes |
+| Self-managed Kubernetes on OVHcloud | ❌ No |
 
-Pull Requests and feedback on issues are very welcome!
-See the [issue tracker](https://github.com/aws/karpenter-core/issues) if you're unsure where to start, especially the [Good first issue](https://github.com/aws/karpenter-core/issues?q=is%3Aopen+is%3Aissue+label%3Agood-first-issue) and [Help wanted](https://github.com/aws/karpenter-core/issues?utf8=%E2%9C%93&q=is%3Aopen+is%3Aissue+label%3Ahelp-wanted) tags, and
-also feel free to reach out to discuss.
+## Features
 
-See also our [contributor guide](CONTRIBUTING.md) and the Kubernetes [community page](https://kubernetes.io/community) for more details on how to get involved.
+| Feature | Status |
+|---------|--------|
+| Automatic node provisioning via MKS Node Pools | ✅ |
+| Cost-aware instance selection | ✅ |
+| All OVHcloud instance types (B, C, R, T series) | ✅ |
+| GPU instance support (T series) | ✅ |
+| Monthly billing option | ✅ |
+| Anti-affinity placement | ✅ |
+| Auto-detection of region and cluster ID | ✅ |
+| Spot instances | ❌ Not available on OVHcloud |
 
-### Code of conduct
+## Prerequisites
 
-Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
+Before installing Karpenter, ensure you have:
 
-## Talks
-- 04/03/2025 [Automating Kubernetes Cluster Updates: Achieving Zero Downtime Effortlessly @ KubeCon](https://youtu.be/rAIcQvKBuZA?si=UZhNqwjPCIybHCvW)
-- 09/08/2022 [Workload Consolidation with Karpenter](https://youtu.be/BnksdJ3oOEs)
-- 05/19/2022 [Scaling K8s Nodes Without Breaking the Bank or Your Sanity](https://www.youtube.com/watch?v=UBb8wbfSc34)
-- 03/25/2022 [Karpenter @ AWS Community Day 2022](https://youtu.be/sxDtmzbNHwE?t=3931)
-- 12/20/2021 [How To Auto-Scale Kubernetes Clusters With Karpenter](https://youtu.be/C-2v7HT-uSA)
-- 11/30/2021 [Karpenter vs Kubernetes Cluster Autoscaler](https://youtu.be/3QsVRHVdOnM)
-- 11/19/2021 [Karpenter @ Container Day](https://youtu.be/qxWJRUF6JJc)
-- 05/14/2021 [Groupless Autoscaling with Karpenter @ Kubecon](https://www.youtube.com/watch?v=43g8uPohTgc)
-- 05/04/2021 [Karpenter @ Container Day](https://youtu.be/MZ-4HzOC_ac?t=7137)
+- An **OVHcloud account** with a Public Cloud project
+- An **MKS cluster** (Managed Kubernetes Service)
+- **OVH API credentials** with appropriate permissions (see [Security](#api-permissions-security))
+- **kubectl** configured to access your cluster
+- **Helm** v3.x installed
+
+## API Permissions (Security)
+
+Karpenter requires OVH API credentials to manage node pools. For security, **always use credentials scoped to your specific cluster**.
+
+### Minimum Required Permissions
+
+| Method | API Path | Purpose |
+|--------|----------|---------|
+| GET | `/cloud/project/{serviceName}/kube/{kubeId}` | Cluster info |
+| GET | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool` | List pools |
+| GET | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*` | Pool details |
+| POST | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool` | Create pools |
+| PUT | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*` | Scale pools |
+| DELETE | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*` | Delete pools |
+| GET | `/cloud/project/{serviceName}/kube/{kubeId}/flavors` | Instance types |
+| GET | `/cloud/project/{serviceName}/capabilities/kube/*` | Capabilities |
+
+> ⚠️ **Security Best Practice**: Never use project-wide or account-wide API credentials.
+> See [docs/SECURITY.md](docs/SECURITY.md) for detailed instructions on creating restricted credentials.
+
+## Installation
+
+### 1. Create OVH API Credentials
+
+Follow the [Security Guide](docs/SECURITY.md) to create restricted API credentials.
+
+### 2. Create Kubernetes Secret
+
+```bash
+kubectl create namespace karpenter
+
+kubectl create secret generic ovh-credentials -n karpenter \
+  --from-literal=applicationKey=YOUR_APP_KEY \
+  --from-literal=applicationSecret=YOUR_APP_SECRET \
+  --from-literal=consumerKey=YOUR_CONSUMER_KEY
+```
+
+### 3. Install via Helm
+
+```bash
+helm install karpenter ./charts \
+  --namespace karpenter \
+  --set ovh.serviceName=YOUR_PROJECT_ID
+```
+
+> **Note**: `kubeId` and `region` are auto-detected from the cluster. You only need to provide `serviceName` (your OVHcloud project ID).
+
+## Quick Start
+
+### 1. Create an OVHNodeClass
+
+```yaml
+apiVersion: karpenter.ovhcloud.sh/v1alpha1
+kind: OVHNodeClass
+metadata:
+  name: default
+spec:
+  serviceName: "your-project-id"       # OVHcloud Public Cloud project ID
+  kubeId: "your-cluster-id"            # Optional: auto-detected
+  region: "EU-WEST-PAR"                # Optional: auto-detected
+  credentialsSecretRef:
+    name: ovh-credentials
+    namespace: karpenter
+  monthlyBilled: false                 # Hourly billing (default)
+  antiAffinity: false                  # Spread across hypervisors
+```
+
+### 2. Create a NodePool
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["b3-8", "b3-16", "b3-32"]  # OVHcloud flavor names
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s
+```
+
+### 3. Deploy a Workload
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: inflate
+  template:
+    metadata:
+      labels:
+        app: inflate
+    spec:
+      containers:
+        - name: inflate
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+```
+
+### 4. Watch Nodes Scale
+
+```bash
+kubectl get nodes -w
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OVH_ENDPOINT` | No | `ovh-eu` | OVH API endpoint (ovh-eu, ovh-ca, ovh-us) |
+| `OVH_SERVICE_NAME` | **Yes** | - | OVHcloud Public Cloud project ID |
+| `OVH_KUBE_ID` | No | Auto-detected | MKS cluster ID |
+| `OVH_REGION` | No | Auto-detected | OVHcloud region (EU-WEST-PAR, GRA7, etc.) |
+
+### OVHcloud Instance Types
+
+Karpenter supports all OVHcloud instance types available in MKS:
+
+| Series | Type | Use Case |
+|--------|------|----------|
+| B2/B3 | General Purpose | Balanced workloads |
+| C2/C3 | Compute Optimized | CPU-intensive workloads |
+| R2/R3 | Memory Optimized | Memory-intensive workloads |
+| T1/T2 | GPU | Machine learning, AI |
+
+## Known Limitations
+
+| Limitation | Description |
+|------------|-------------|
+| MKS clusters only | Does not support self-managed Kubernetes on OVHcloud |
+| No spot instances | OVHcloud doesn't offer spot/preemptible instances |
+| Max 100 node pools | MKS limit per cluster |
+| Pool-based scaling | Individual node deletion not supported; Karpenter scales pools |
+| Async pool creation | Node creation has ~2 min latency |
+
+## Troubleshooting
+
+### Common Issues
+
+**Nodes not provisioning**
+```bash
+# Check Karpenter logs
+kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter
+
+# Check pending pods
+kubectl get pods --field-selector=status.phase=Pending
+```
+
+**API permission errors**
+```bash
+# Verify credentials
+kubectl get secret ovh-credentials -n karpenter -o yaml
+```
+
+**Region mismatch**
+- Ensure your NodeClass region matches your MKS cluster region
+- Or leave it empty for auto-detection
+
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more solutions.
+
+## Community
+
+- **Slack**: [#karpenter](https://kubernetes.slack.com/archives/C02SFFZSA2K) on [Kubernetes Slack](https://slack.k8s.io/)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/ovh/karpenter-provider-ovhcloud/issues)
+- **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Related Projects
+
+- [Karpenter Core](https://github.com/kubernetes-sigs/karpenter) - The Karpenter project
+- [OVHcloud MKS Documentation](https://docs.ovh.com/gb/en/kubernetes/)
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Made with ❤️ for the Kubernetes community
+</p>

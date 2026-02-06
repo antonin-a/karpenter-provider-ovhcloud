@@ -1,0 +1,43 @@
+# Karpenter OVHcloud Demo - Inflate Deployment
+# Usage: kubectl apply -f 04-inflate.yaml
+#        kubectl scale deployment/inflate --replicas=5
+#
+# This deployment uses pause containers to simulate workload
+# and trigger Karpenter autoscaling.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+  namespace: default
+  labels:
+    app: inflate
+    demo: karpenter-ovhcloud
+spec:
+  # Start with 0 replicas - scale up to trigger provisioning
+  replicas: 0
+  selector:
+    matchLabels:
+      app: inflate
+  template:
+    metadata:
+      labels:
+        app: inflate
+        demo: karpenter-ovhcloud
+    spec:
+      # Fast termination for demo purposes
+      terminationGracePeriodSeconds: 0
+
+      containers:
+        - name: inflate
+          # Pause container - minimal resource usage
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+
+          # Resource requests to trigger scaling
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

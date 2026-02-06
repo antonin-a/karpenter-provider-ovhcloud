@@ -1,0 +1,33 @@
+---
+# Test deployment to trigger Karpenter scaling
+# This creates pods that cannot be scheduled on existing nodes,
+# forcing Karpenter to provision new nodes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+  namespace: default
+spec:
+  replicas: 0  # Start with 0, scale up to trigger provisioning
+  selector:
+    matchLabels:
+      app: inflate
+  template:
+    metadata:
+      labels:
+        app: inflate
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: inflate
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+---
+# To trigger scaling, run:
+# kubectl scale deployment inflate --replicas=5
+#
+# To scale down:
+# kubectl scale deployment inflate --replicas=0

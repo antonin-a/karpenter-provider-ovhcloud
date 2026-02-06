@@ -1,0 +1,99 @@
+# Default values for karpenter-ovhcloud
+
+# Number of replicas
+replicas: 1
+
+# Image configuration
+image:
+  repository: ghcr.io/ovh/karpenter-provider-ovhcloud
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# OVH API configuration
+ovh:
+  # OVH API endpoint (ovh-eu, ovh-ca, ovh-us)
+  endpoint: "ovh-eu"
+  # OVHcloud Public Cloud Project ID (REQUIRED - cannot be auto-detected)
+  serviceName: ""
+  # MKS Cluster ID (optional - will be auto-detected from node annotations if not set)
+  kubeId: ""
+  # OVHcloud region (optional - will be auto-detected from MKS cluster API if not set)
+  # Examples: EU-WEST-PAR, GRA7, SBG5
+  region: ""
+
+# Credentials configuration
+credentials:
+  # Create secret from values (not recommended for production)
+  create: false
+  # Name of existing secret
+  secretName: "ovh-credentials"
+  # Namespace of the secret
+  secretNamespace: "karpenter"
+  # Values (only used if create: true)
+  applicationKey: ""
+  applicationSecret: ""
+  consumerKey: ""
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: "karpenter"
+  annotations: {}
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+
+# Affinity
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 65532
+
+# Container security context
+securityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Log level
+logLevel: info
+
+# Feature gates
+featureGates: {}
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: false
+  # Additional labels for ServiceMonitor
+  additionalLabels: {}
+  # Scrape interval
+  interval: 30s
+  # Scrape timeout (optional)
+  scrapeTimeout: ""

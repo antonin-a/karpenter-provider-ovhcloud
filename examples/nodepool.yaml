@@ -1,0 +1,52 @@
+---
+# NodePool defines how Karpenter should provision nodes
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: general
+spec:
+  template:
+    spec:
+      # Reference to the OVHNodeClass
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+
+      # Node requirements
+      requirements:
+        # Instance types to use (OVHcloud flavors)
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - b3-8    # 2 vCPUs, 8 GiB RAM
+            - b3-16   # 4 vCPUs, 16 GiB RAM
+            - b3-32   # 8 vCPUs, 32 GiB RAM
+
+        # Architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        # OS
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # Capacity type (OVHcloud only supports on-demand)
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+      # Expire nodes after 720h (30 days)
+      expireAfter: 720h
+
+  # Resource limits for this NodePool
+  limits:
+    cpu: 100
+    memory: 200Gi
+
+  # Disruption settings
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
