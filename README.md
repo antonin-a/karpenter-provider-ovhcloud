@@ -56,7 +56,7 @@ This provider uses the MKS Node Pool APIs and is designed exclusively for OVHclo
 | Cost-aware instance selection | ✅ |
 | All OVHcloud instance types (B, C, R, T series) | ✅ |
 | GPU instance support (T series) | ✅ |
-| Monthly billing option | ✅ |
+| Monthly billing option (gen2 instances only) | ✅ |
 | Anti-affinity placement | ✅ |
 | Auto-detection of region and cluster ID | ✅ |
 | Spot instances | ❌ Not available on OVHcloud |
@@ -134,7 +134,7 @@ spec:
   credentialsSecretRef:
     name: ovh-credentials
     namespace: karpenter
-  monthlyBilled: false                 # Hourly billing (default)
+  monthlyBilled: false                 # Hourly billing (gen2 instances only: b2, c2, d2, r2)
   antiAffinity: false                  # Spread across hypervisors
 ```
 
@@ -227,6 +227,7 @@ Karpenter supports all OVHcloud instance types available in MKS:
 | Max 100 node pools | MKS limit per cluster |
 | Pool-based scaling | Individual node deletion not supported; Karpenter scales pools |
 | Async pool creation | Node creation has ~2 min latency |
+| Monthly billing | Only available on gen2 instances (b2, c2, d2, r2) |
 
 ## Troubleshooting
 

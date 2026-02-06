@@ -3,6 +3,9 @@
 #
 # Monthly billing provides ~50% cost savings for nodes that run 24/7.
 # Best for: Production workloads, long-running services
+#
+# ⚠️ IMPORTANT: Monthly billing is only available on gen2 instances (b2, c2, d2, r2).
+#    Make sure your NodePool requirements only include gen2 instance types.
 ---
 apiVersion: karpenter.ovhcloud.sh/v1alpha1
 kind: OVHNodeClass

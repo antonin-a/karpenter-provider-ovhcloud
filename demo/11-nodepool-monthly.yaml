@@ -1,0 +1,64 @@
+# Karpenter OVHcloud Demo - NodePool for Monthly Billing
+# Usage: kubectl apply -f 11-nodepool-monthly.yaml
+#
+# This NodePool is designed to work with the monthly-billing OVHNodeClass.
+# ⚠️ IMPORTANT: Monthly billing is only available on gen2 instances.
+#    Only b2, c2, d2, r2 instance types support monthly billing.
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: demo-monthly
+spec:
+  template:
+    metadata:
+      labels:
+        demo: karpenter-ovhcloud
+        billing: monthly
+    spec:
+      # Reference to OVHNodeClass with monthlyBilled: true
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: monthly-billing
+
+      # Node requirements
+      requirements:
+        # ⚠️ Only gen2 instances support monthly billing
+        # b2 = General Purpose, c2 = CPU Optimized, r2 = RAM Optimized
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - b2-7     # 2 vCPUs, 7 GiB RAM
+            - b2-15    # 4 vCPUs, 15 GiB RAM
+            - b2-30    # 8 vCPUs, 30 GiB RAM
+            - b2-60    # 16 vCPUs, 60 GiB RAM
+
+        # Architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        # OS
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # Capacity type
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+      # Longer expiration for monthly nodes (not too short to waste monthly investment)
+      expireAfter: 720h  # 30 days
+
+  # Resource limits for this NodePool
+  limits:
+    cpu: 100
+    memory: 200Gi
+
+  # Disruption settings - more conservative for monthly billing
+  # since we're paying for the full month anyway
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m

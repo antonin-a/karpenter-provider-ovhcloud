@@ -20,6 +20,7 @@ spec:
     namespace: karpenter
 
   # Optional: Enable monthly billing (cheaper for long-running nodes)
+  # ⚠️ Only available on gen2 instances: b2, c2, d2, r2
   monthlyBilled: false
 
   # Optional: Enable anti-affinity (spreads nodes across hypervisors)

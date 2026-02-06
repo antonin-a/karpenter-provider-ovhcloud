@@ -107,6 +107,7 @@ spec:
     namespace: karpenter
 
   # Facturation mensuelle (optionnel, défaut: false)
+  # ⚠️ Disponible uniquement sur instances gen2 : b2, c2, d2, r2
   monthlyBilled: false
 
   # Anti-affinité entre nodes du même pool (optionnel, défaut: false)
