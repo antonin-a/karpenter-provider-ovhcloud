@@ -111,14 +111,15 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	logger.Info("Creating node", "flavor", flavor, "zone", zone, "poolName", poolName)
 
 	// Get or create the pool with labels and taints from NodeClaim
-	pool, err := c.getOrCreatePool(ctx, poolName, flavor, zone, nodeClass, nodeClaim)
+	// Also get the existing node IDs BEFORE scaling up, so we can identify the NEW node
+	pool, existingNodeIDs, err := c.getOrCreatePool(ctx, poolName, flavor, zone, nodeClass, nodeClaim)
 	if err != nil {
 		RecordNodeProvisioning(flavor, zone, "pool_error")
 		return nil, fmt.Errorf("getting/creating pool: %w", err)
 	}
 
-	// Wait for a new node to appear
-	node, err := c.waitForNewNode(ctx, pool.ID, pool.CurrentNodes)
+	// Wait for a new node to appear (one that wasn't in existingNodeIDs)
+	node, err := c.waitForNewNode(ctx, pool.ID, existingNodeIDs)
 	if err != nil {
 		RecordNodeProvisioning(flavor, zone, "timeout")
 		return nil, fmt.Errorf("waiting for new node: %w", err)
@@ -158,12 +159,15 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	return created, nil
 }
 
-// Delete removes a NodeClaim by scaling down or deleting the OVH Node Pool
+// Delete removes a NodeClaim by deleting the specific node from OVH
+// If the node is the last one in the pool, the entire pool is deleted
 func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *v1.NodeClaim) error {
 	logger := log.FromContext(ctx)
 	startTime := time.Now()
 
 	poolID := nodeClaim.Annotations[v1alpha1.AnnotationOVHPoolID]
+	nodeID := nodeClaim.Annotations[v1alpha1.AnnotationOVHNodeID]
+
 	if poolID == "" {
 		RecordNodeDeletion("no_pool_id")
 		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("no pool ID annotation"))
@@ -177,10 +181,10 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *v1.NodeClaim) err
 		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("pool not found: %w", err))
 	}
 
-	logger.Info("Deleting node", "poolID", poolID, "currentNodes", pool.CurrentNodes)
+	logger.Info("Deleting node", "nodeID", nodeID, "poolID", poolID, "currentNodes", pool.CurrentNodes)
 
-	if pool.DesiredNodes <= 1 {
-		// Delete the entire pool
+	// If this is the last node in the pool, delete the entire pool
+	if pool.CurrentNodes <= 1 {
 		if err := c.ovhClient.DeleteNodePool(ctx, poolID); err != nil {
 			RecordNodeDeletion("delete_error")
 			RecordPoolOperation("delete", "error")
@@ -196,8 +200,27 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *v1.NodeClaim) err
 			}
 		}
 		c.mu.Unlock()
+	} else if nodeID != "" {
+		// Delete the specific node using the OVH API
+		// This is more precise than scaling down, which lets OVH choose which node to remove
+		if err := c.ovhClient.DeleteNode(ctx, nodeID); err != nil {
+			// If specific node deletion fails, fall back to scaling down
+			logger.Info("Specific node deletion failed, falling back to scale down", "error", err)
+			_, err := c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
+				DesiredNodes: pool.DesiredNodes - 1,
+			})
+			if err != nil {
+				RecordNodeDeletion("scale_down_error")
+				RecordPoolOperation("scale_down", "error")
+				return fmt.Errorf("scaling down pool: %w", err)
+			}
+			RecordPoolOperation("scale_down", "success")
+		} else {
+			RecordPoolOperation("delete_node", "success")
+		}
 	} else {
-		// Scale down by 1
+		// No node ID, fall back to scaling down
+		logger.Info("No node ID annotation, falling back to scale down")
 		_, err := c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
 			DesiredNodes: pool.DesiredNodes - 1,
 		})
@@ -418,23 +441,38 @@ func (c *CloudProvider) selectZone(nodeClaim *v1.NodeClaim) string {
 	return strings.ToLower(region) + "-a"
 }
 
-func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass, nodeClaim *v1.NodeClaim) (*ovhclient.NodePool, error) {
+func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass, nodeClaim *v1.NodeClaim) (*ovhclient.NodePool, map[string]bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Helper function to get existing node IDs from a pool
+	getExistingNodeIDs := func(poolID string) map[string]bool {
+		existingNodeIDs := make(map[string]bool)
+		nodes, err := c.ovhClient.ListPoolNodes(ctx, poolID)
+		if err == nil {
+			for _, node := range nodes {
+				existingNodeIDs[node.ID] = true
+			}
+		}
+		return existingNodeIDs
+	}
 
 	// Check cache first
 	if poolID, ok := c.poolCache[poolName]; ok {
 		pool, err := c.ovhClient.GetNodePool(ctx, poolID)
 		if err == nil {
+			// Get existing node IDs BEFORE scaling up
+			existingNodeIDs := getExistingNodeIDs(poolID)
+
 			// Scale up the pool
 			_, err = c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
 				DesiredNodes: pool.DesiredNodes + 1,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("scaling up pool: %w", err)
+				return nil, nil, fmt.Errorf("scaling up pool: %w", err)
 			}
 			pool.DesiredNodes++
-			return pool, nil
+			return pool, existingNodeIDs, nil
 		}
 		// Pool might have been deleted, remove from cache
 		delete(c.poolCache, poolName)
@@ -443,21 +481,26 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 	// Check if pool exists in OVH
 	pools, err := c.ovhClient.ListNodePools(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing pools: %w", err)
+		return nil, nil, fmt.Errorf("listing pools: %w", err)
 	}
 
 	for _, pool := range pools {
 		if pool.Name == poolName {
-			// Update cache and scale up
+			// Update cache
 			c.poolCache[poolName] = pool.ID
+
+			// Get existing node IDs BEFORE scaling up
+			existingNodeIDs := getExistingNodeIDs(pool.ID)
+
+			// Scale up
 			_, err = c.ovhClient.UpdateNodePool(ctx, pool.ID, &ovhclient.UpdateNodePoolRequest{
 				DesiredNodes: pool.DesiredNodes + 1,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("scaling up existing pool: %w", err)
+				return nil, nil, fmt.Errorf("scaling up existing pool: %w", err)
 			}
 			pool.DesiredNodes++
-			return &pool, nil
+			return &pool, existingNodeIDs, nil
 		}
 	}
 
@@ -530,14 +573,15 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 
 	pool, err := c.ovhClient.CreateNodePool(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("creating pool: %w", err)
+		return nil, nil, fmt.Errorf("creating pool: %w", err)
 	}
 
 	c.poolCache[poolName] = pool.ID
-	return pool, nil
+	// For a new pool, there are no existing nodes
+	return pool, make(map[string]bool), nil
 }
 
-func (c *CloudProvider) waitForNewNode(ctx context.Context, poolID string, previousCount int) (*ovhclient.Node, error) {
+func (c *CloudProvider) waitForNewNode(ctx context.Context, poolID string, existingNodeIDs map[string]bool) (*ovhclient.Node, error) {
 	timeout := time.After(10 * time.Minute)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -554,11 +598,14 @@ func (c *CloudProvider) waitForNewNode(ctx context.Context, poolID string, previ
 				continue
 			}
 
-			// Look for a READY node with InstanceID populated
-			// The InstanceID is the OpenStack instance ID needed for provider ID matching
+			// Look for a READY node with InstanceID populated that wasn't in the original set
+			// This ensures we return the NEW node created for this NodeClaim, not an existing one
 			for _, node := range nodes {
 				if node.Status == "READY" && node.InstanceID != "" {
-					return &node, nil
+					// Check if this is a NEW node (not in the existing set)
+					if !existingNodeIDs[node.ID] {
+						return &node, nil
+					}
 				}
 			}
 		}

@@ -332,3 +332,16 @@ func (c *OVHClient) AutoDetectRegion(ctx context.Context) (string, error) {
 	c.region = cluster.Region
 	return cluster.Region, nil
 }
+
+// DeleteNode deletes a specific node from the cluster
+// This is different from scaling down - it removes the exact node specified
+// API: DELETE /cloud/project/{serviceName}/kube/{kubeId}/node/{nodeId}
+func (c *OVHClient) DeleteNode(ctx context.Context, nodeID string) error {
+	path := fmt.Sprintf("%s/node/%s", c.basePath(), nodeID)
+	return retryableVoidCall(ctx, c.retryConfig, "DeleteNode", func() error {
+		if err := c.client.DeleteWithContext(ctx, path, nil); err != nil {
+			return fmt.Errorf("deleting node %s: %w", nodeID, err)
+		}
+		return nil
+	})
+}
