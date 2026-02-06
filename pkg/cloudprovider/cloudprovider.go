@@ -511,14 +511,16 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 		taints = append(taints, nodeClaim.Spec.Taints...)
 	}
 
-	// Build annotations for the node template
-	// OVHcloud MKS API requires annotations to be set (even if empty)
+	// Build annotations and finalizers for the node template
+	// OVHcloud MKS API requires these fields to be set (even if empty)
 	annotations := make(map[string]string)
+	finalizers := []string{}
 
 	req.Template = &ovhclient.NodePoolTemplate{
 		Metadata: ovhclient.NodePoolTemplateMetadata{
 			Labels:      labels,
 			Annotations: annotations,
+			Finalizers:  finalizers,
 		},
 		Spec: ovhclient.NodePoolTemplateSpec{
 			Taints: taints,
