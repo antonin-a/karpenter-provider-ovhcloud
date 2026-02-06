@@ -816,8 +816,3 @@ func buildOfferingsWithPricing(ctx context.Context, flavor ovhclient.Flavor, reg
 
 	return offerings
 }
-
-// buildOfferings creates offerings for a flavor with all available zones (uses estimated pricing)
-func buildOfferings(flavor ovhclient.Flavor, region string) cloudprovider.Offerings {
-	return buildOfferingsWithPricing(context.Background(), flavor, region, nil)
-}
