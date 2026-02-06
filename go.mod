@@ -1,6 +1,6 @@
 module github.com/ovh/karpenter-provider-ovhcloud
 
-go 1.23
+go 1.25.5
 
 require (
 	github.com/awslabs/operatorpkg v0.0.0-20251222193911-34e9a1898737
