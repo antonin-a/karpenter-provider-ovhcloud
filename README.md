@@ -253,7 +253,7 @@ kubectl get secret ovh-credentials -n karpenter -o yaml
 - Ensure your NodeClass region matches your MKS cluster region
 - Or leave it empty for auto-detection
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more solutions.
+See [User Guide - Troubleshooting](docs/USER_GUIDE.md#troubleshooting) for more solutions.
 
 ## Community
 
