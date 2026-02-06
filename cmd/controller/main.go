@@ -34,6 +34,9 @@ import (
 	"sigs.k8s.io/karpenter/pkg/operator"
 )
 
+// Build version - updated to invalidate Docker cache
+const buildVersion = "0.1.0-20260206"
+
 const (
 	// ClusterNameAnnotation is the annotation on nodes that contains the MKS cluster ID
 	ClusterNameAnnotation = "cluster.x-k8s.io/cluster-name"
