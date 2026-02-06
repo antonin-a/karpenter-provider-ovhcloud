@@ -110,8 +110,8 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 
 	logger.Info("Creating node", "flavor", flavor, "zone", zone, "poolName", poolName)
 
-	// Get or create the pool
-	pool, err := c.getOrCreatePool(ctx, poolName, flavor, zone, nodeClass)
+	// Get or create the pool with labels and taints from NodeClaim
+	pool, err := c.getOrCreatePool(ctx, poolName, flavor, zone, nodeClass, nodeClaim)
 	if err != nil {
 		RecordNodeProvisioning(flavor, zone, "pool_error")
 		return nil, fmt.Errorf("getting/creating pool: %w", err)
@@ -289,34 +289,64 @@ func (c *CloudProvider) GetInstanceTypes(ctx context.Context, nodePool *v1.NodeP
 }
 
 // IsDrifted checks if a NodeClaim has drifted from its NodeClass
+// This is called by Karpenter core to determine if a node should be replaced
+// Note: Karpenter core also performs its own drift detection (RequirementsDrifted)
+// by comparing NodeClaim requirements against the node's actual labels
 func (c *CloudProvider) IsDrifted(ctx context.Context, nodeClaim *v1.NodeClaim) (cloudprovider.DriftReason, error) {
+	logger := log.FromContext(ctx)
+
 	nodeClass, err := c.resolveNodeClass(ctx, nodeClaim)
 	if err != nil {
+		// If we can't resolve the NodeClass, don't report drift
+		// This avoids false positives during NodeClass creation/deletion
+		logger.V(1).Info("Cannot resolve NodeClass for drift detection", "nodeClaim", nodeClaim.Name, "error", err)
 		return "", nil
 	}
 
 	poolID := nodeClaim.Annotations[v1alpha1.AnnotationOVHPoolID]
 	if poolID == "" {
+		// No pool ID means this NodeClaim was created before pool tracking
+		// Don't report drift to avoid unnecessary replacements
+		logger.V(1).Info("No pool ID annotation for drift detection", "nodeClaim", nodeClaim.Name)
 		return "", nil
 	}
 
 	pool, err := c.ovhClient.GetNodePool(ctx, poolID)
 	if err != nil {
+		// Pool might have been deleted or API error
+		// Don't report drift on transient errors
+		logger.V(1).Info("Cannot get pool for drift detection", "poolID", poolID, "error", err)
 		return "", nil
 	}
 
 	// Check monthly billing drift
+	// This is a billing configuration that can't be changed on existing pools
 	if pool.MonthlyBilled != nodeClass.Spec.MonthlyBilled {
+		logger.Info("Drift detected: MonthlyBillingChanged",
+			"nodeClaim", nodeClaim.Name,
+			"pool", pool.Name,
+			"poolMonthlyBilled", pool.MonthlyBilled,
+			"nodeClassMonthlyBilled", nodeClass.Spec.MonthlyBilled)
 		RecordDriftDetection("MonthlyBillingChanged")
 		return "MonthlyBillingChanged", nil
 	}
 
 	// Check anti-affinity drift
+	// This is a placement configuration that can't be changed on existing pools
 	if pool.AntiAffinity != nodeClass.Spec.AntiAffinity {
+		logger.Info("Drift detected: AntiAffinityChanged",
+			"nodeClaim", nodeClaim.Name,
+			"pool", pool.Name,
+			"poolAntiAffinity", pool.AntiAffinity,
+			"nodeClassAntiAffinity", nodeClass.Spec.AntiAffinity)
 		RecordDriftDetection("AntiAffinityChanged")
 		return "AntiAffinityChanged", nil
 	}
 
+	// No OVHcloud-specific drift detected
+	// Note: Karpenter core may still detect RequirementsDrifted if node labels
+	// don't match the NodeClaim requirements. This is expected behavior when
+	// MKS doesn't apply all the labels we request in the pool template.
 	return "", nil
 }
 
@@ -388,7 +418,7 @@ func (c *CloudProvider) selectZone(nodeClaim *v1.NodeClaim) string {
 	return strings.ToLower(region) + "-a"
 }
 
-func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass) (*ovhclient.NodePool, error) {
+func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass, nodeClaim *v1.NodeClaim) (*ovhclient.NodePool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -445,19 +475,48 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 		req.AvailabilityZones = []string{zone}
 	}
 
-	// Add tags and Karpenter labels to the node template
+	// Build labels for the node template
+	// These labels are applied to nodes by MKS and are critical for Karpenter to match nodes to NodeClaims
 	labels := make(map[string]string)
+
+	// Standard Karpenter management labels
 	labels["managed-by"] = "karpenter"
-	labels["karpenter.sh/nodepool"] = poolName
+
+	// Standard Kubernetes labels that Karpenter uses for scheduling decisions
+	// These MUST match what we set on the NodeClaim for drift detection to work correctly
+	labels[corev1.LabelInstanceTypeStable] = flavor
+	labels[corev1.LabelTopologyZone] = zone
+	labels[v1.CapacityTypeLabelKey] = v1.CapacityTypeOnDemand
+	labels[corev1.LabelArchStable] = v1.ArchitectureAmd64
+	labels[corev1.LabelOSStable] = string(corev1.Linux)
+
+	// Add Karpenter-specific labels
+	labels["karpenter.sh/registered"] = "true"
+
+	// Add the NodePool name from the NodeClaim if available
+	if nodeClaim != nil && nodeClaim.Labels != nil {
+		if nodePoolName, ok := nodeClaim.Labels[v1.NodePoolLabelKey]; ok {
+			labels[v1.NodePoolLabelKey] = nodePoolName
+		}
+	}
 
 	// Add user-defined tags from NodeClass
 	for k, v := range nodeClass.Spec.Tags {
 		labels[k] = v
 	}
 
+	// Build taints from NodeClaim spec
+	var taints []corev1.Taint
+	if nodeClaim != nil && nodeClaim.Spec.Taints != nil {
+		taints = append(taints, nodeClaim.Spec.Taints...)
+	}
+
 	req.Template = &ovhclient.NodePoolTemplate{
 		Metadata: ovhclient.NodePoolTemplateMetadata{
 			Labels: labels,
+		},
+		Spec: ovhclient.NodePoolTemplateSpec{
+			Taints: taints,
 		},
 	}
 

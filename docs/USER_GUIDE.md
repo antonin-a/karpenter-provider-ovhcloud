@@ -44,13 +44,34 @@ See [SECURITY.md](SECURITY.md) for detailed instructions on creating restricted 
 
 ## Installation
 
+### Understanding CRDs
+
+Karpenter uses three Custom Resource Definitions (CRDs):
+
+| CRD | Source | Description |
+|-----|--------|-------------|
+| `NodePool` | Karpenter upstream | Defines autoscaling rules and node constraints |
+| `NodeClaim` | Karpenter upstream | Internal resource tracking individual node requests |
+| `OVHNodeClass` | This provider | OVHcloud-specific configuration (credentials, region, billing) |
+
+**Important notes:**
+- CRDs must exist before the controller starts (otherwise it crashes)
+- CRDs are persistent: they survive control plane upgrades in managed clusters
+- You only need to install CRDs once per cluster
+
 ### 1. Install CRDs
 
+The **OVHNodeClass CRD** is automatically installed by the Helm chart (from `charts/crds/`).
+
+You only need to install the **Karpenter core CRDs** manually:
+
 ```bash
+# Install Karpenter core CRDs (NodePool and NodeClaim)
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/karpenter/main/pkg/apis/crds/karpenter.sh_nodepools.yaml
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/karpenter/main/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
-kubectl apply -f charts/crds/karpenter.ovhcloud.sh_ovhnodeclasses.yaml
 ```
+
+> **Note**: The OVHNodeClass CRD (`charts/crds/karpenter.ovhcloud.sh_ovhnodeclasses.yaml`) is installed automatically by Helm during step 3.
 
 ### 2. Create the credentials Secret
 
@@ -211,67 +232,236 @@ spec:
 
 | Parameter | Location | Description | Example |
 |-----------|----------|-------------|---------|
-| `instance-type` | requirements | Allowed flavors | `["b2-7", "b2-15"]` |
+| `instance-type` | requirements | Allowed flavors | `["b3-8", "b3-16", "b3-32"]` |
 | `capacity-type` | requirements | Type (on-demand) | `["on-demand"]` |
-| `topology.kubernetes.io/zone` | requirements | Allowed zones | `["gra7-a"]` |
+| `topology.kubernetes.io/zone` | requirements | Allowed zones | `["eu-west-par-a"]` |
 
 ### Available OVHcloud Flavors
 
-#### General Purpose (Generation 2)
-| Flavor | vCPUs | RAM | Storage | Recommended Use |
-|--------|-------|-----|---------|-----------------|
-| b2-7 | 2 | 7 GiB | 50 GiB | Light workloads, dev |
-| b2-15 | 4 | 15 GiB | 100 GiB | Standard applications |
-| b2-30 | 8 | 30 GiB | 200 GiB | Databases, CI/CD |
-| b2-60 | 16 | 60 GiB | 400 GiB | Intensive workloads |
-| b2-120 | 32 | 120 GiB | 400 GiB | Big data, ML |
+> **Note**: Flavor availability varies by region. Use the OVH API to get the current list of available flavors for your region (see [Discovering Available Flavors](#discovering-available-flavors) below).
 
-#### General Purpose (Generation 3 - Recommended)
-| Flavor | vCPUs | RAM | Storage | Recommended Use |
-|--------|-------|-----|---------|-----------------|
-| b3-8 | 2 | 8 GiB | 25 GiB | Dev, testing |
-| b3-16 | 4 | 16 GiB | 50 GiB | Web applications |
-| b3-32 | 8 | 32 GiB | 50 GiB | Microservices |
-| b3-64 | 16 | 64 GiB | 50 GiB | Intensive applications |
-| b3-128 | 32 | 128 GiB | 50 GiB | Heavy workloads |
+#### Cost Optimization Options
 
-#### Compute Optimized
-| Flavor | vCPUs | RAM | Storage | Recommended Use |
-|--------|-------|-----|---------|-----------------|
-| c2-7 | 2 | 7 GiB | 50 GiB | Light compute |
-| c2-15 | 4 | 15 GiB | 100 GiB | CI/CD, builds |
-| c2-30 | 8 | 30 GiB | 200 GiB | Batch processing |
-| c2-60 | 16 | 60 GiB | 400 GiB | Light HPC |
-| c2-120 | 32 | 120 GiB | 400 GiB | HPC |
-| c3-8 | 2 | 8 GiB | 25 GiB | Compute (Gen3) |
-| c3-16 | 4 | 16 GiB | 50 GiB | Compute (Gen3) |
-| c3-32 | 8 | 32 GiB | 50 GiB | Compute (Gen3) |
-| c3-64 | 16 | 64 GiB | 50 GiB | Compute (Gen3) |
-| c3-128 | 32 | 128 GiB | 50 GiB | Compute (Gen3) |
+| Generation | Instances | Cost Option | How to Enable |
+|------------|-----------|-------------|---------------|
+| Gen2 | b2, c2, d2, r2 | **Monthly Billing** (~50% savings) | Set `monthlyBilled: true` in OVHNodeClass |
+| Gen3 | b3, c3, r3 | **Savings Plans** (up to 50% savings) | Purchase via [OVHcloud Console](https://www.ovhcloud.com/en/public-cloud/savings-plan/) |
 
-#### Memory Optimized
-| Flavor | vCPUs | RAM | Storage | Recommended Use |
-|--------|-------|-----|---------|-----------------|
-| r2-15 | 2 | 15 GiB | 50 GiB | Cache, Redis |
-| r2-30 | 2 | 30 GiB | 50 GiB | Elasticsearch |
-| r2-60 | 4 | 60 GiB | 100 GiB | Databases |
-| r2-120 | 8 | 120 GiB | 200 GiB | In-memory DBs |
-| r2-240 | 16 | 240 GiB | 400 GiB | SAP, large DBs |
-| r3-16 | 2 | 16 GiB | 25 GiB | Memory (Gen3) |
-| r3-32 | 2 | 32 GiB | 25 GiB | Memory (Gen3) |
-| r3-64 | 4 | 64 GiB | 50 GiB | Memory (Gen3) |
-| r3-128 | 8 | 128 GiB | 50 GiB | Memory (Gen3) |
-| r3-256 | 16 | 256 GiB | 50 GiB | Memory (Gen3) |
+> **Important**: Monthly billing and Savings Plans are mutually exclusive options for different instance generations.
 
-#### GPU Instances
-| Flavor | vCPUs | RAM | GPU | Recommended Use |
-|--------|-------|-----|-----|-----------------|
-| t1-45 | 4 | 45 GiB | 1x V100 | ML inference |
-| t1-90 | 8 | 90 GiB | 2x V100 | ML training |
-| t1-180 | 16 | 180 GiB | 4x V100 | Deep learning |
-| t2-45 | 4 | 45 GiB | 1x V100S | ML inference (Gen2) |
-| t2-90 | 8 | 90 GiB | 2x V100S | ML training (Gen2) |
-| t2-180 | 16 | 180 GiB | 4x V100S | Deep learning (Gen2) |
+#### General Purpose (b series)
+
+**Generation 2** (monthly billing available):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| b2-7 | 2 | 7 GiB |
+| b2-15 | 4 | 15 GiB |
+| b2-30 | 8 | 30 GiB |
+| b2-60 | 16 | 60 GiB |
+| b2-120 | 32 | 120 GiB |
+
+**Generation 3** (Savings Plans compatible):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| b3-8 | 2 | 8 GiB |
+| b3-16 | 4 | 16 GiB |
+| b3-32 | 8 | 32 GiB |
+| b3-64 | 16 | 64 GiB |
+| b3-128 | 32 | 128 GiB |
+| b3-256 | 64 | 256 GiB |
+| b3-512 | 128 | 512 GiB |
+| b3-640 | 160 | 640 GiB |
+
+#### Compute Optimized (c series)
+
+**Generation 2** (monthly billing available):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| c2-7 | 2 | 7 GiB |
+| c2-15 | 4 | 15 GiB |
+| c2-30 | 8 | 30 GiB |
+| c2-60 | 16 | 60 GiB |
+| c2-120 | 32 | 120 GiB |
+
+**Generation 3** (Savings Plans compatible):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| c3-4 | 2 | 4 GiB |
+| c3-8 | 4 | 8 GiB |
+| c3-16 | 8 | 16 GiB |
+| c3-32 | 16 | 32 GiB |
+| c3-64 | 32 | 64 GiB |
+| c3-128 | 64 | 128 GiB |
+| c3-256 | 128 | 256 GiB |
+| c3-320 | 160 | 320 GiB |
+
+#### Memory Optimized (r series)
+
+**Generation 2** (monthly billing available):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| r2-15 | 2 | 15 GiB |
+| r2-30 | 2 | 30 GiB |
+| r2-60 | 4 | 60 GiB |
+| r2-120 | 8 | 120 GiB |
+| r2-240 | 16 | 240 GiB |
+
+**Generation 3** (Savings Plans compatible):
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| r3-16 | 2 | 16 GiB |
+| r3-32 | 4 | 32 GiB |
+| r3-64 | 8 | 64 GiB |
+| r3-128 | 16 | 128 GiB |
+| r3-256 | 32 | 256 GiB |
+| r3-512 | 64 | 512 GiB |
+| r3-1024 | 128 | 1024 GiB |
+
+#### Discovery (d series) - Monthly billing available
+
+Entry-level instances for testing and development:
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| d2-4 | 2 | 4 GiB |
+| d2-8 | 4 | 8 GiB |
+
+#### IOPS Optimized (i series)
+
+High I/O performance instances:
+| Flavor | vCPUs | RAM |
+|--------|-------|-----|
+| i1-45 | 8 | 45 GiB |
+| i1-90 | 16 | 90 GiB |
+| i1-180 | 32 | 180 GiB |
+
+#### GPU - Tesla V100 (t series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| t1-45 | 8 | 45 GiB | 1 |
+| t1-90 | 18 | 90 GiB | 2 |
+| t1-180 | 36 | 180 GiB | 4 |
+| t1-le-45 | 8 | 45 GiB | 1 |
+| t1-le-90 | 16 | 90 GiB | 2 |
+| t1-le-180 | 32 | 180 GiB | 4 |
+| t2-45 | 15 | 45 GiB | 1 |
+| t2-90 | 30 | 90 GiB | 2 |
+| t2-180 | 60 | 180 GiB | 4 |
+| t2-le-45 | 14 | 45 GiB | 1 |
+| t2-le-90 | 30 | 90 GiB | 2 |
+| t2-le-180 | 60 | 180 GiB | 4 |
+
+> Note: `-le` variants are "low energy" versions.
+
+#### GPU - NVIDIA A10 (a series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| a10-45 | 30 | 45 GiB | 1 |
+| a10-90 | 60 | 90 GiB | 2 |
+| a10-180 | 120 | 180 GiB | 4 |
+
+#### GPU - NVIDIA A100 (a series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| a100-180 | 15 | 180 GiB | 1 |
+| a100-360 | 30 | 360 GiB | 2 |
+| a100-720 | 60 | 720 GiB | 4 |
+
+#### GPU - NVIDIA L4 (l series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| l4-90 | 22 | 90 GiB | 1 |
+| l4-180 | 45 | 180 GiB | 2 |
+| l4-360 | 90 | 360 GiB | 4 |
+
+#### GPU - NVIDIA L40S (l series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| l40s-90 | 15 | 90 GiB | 1 |
+| l40s-180 | 30 | 180 GiB | 2 |
+| l40s-360 | 60 | 360 GiB | 4 |
+
+#### GPU - NVIDIA H100 (h series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| h100-380 | 30 | 380 GiB | 1 |
+| h100-760 | 60 | 760 GiB | 2 |
+| h100-1520 | 120 | 1520 GiB | 4 |
+
+#### GPU - NVIDIA RTX 5000 (g series)
+
+| Flavor | vCPUs | RAM | GPUs |
+|--------|-------|-----|------|
+| rtx5000-28 | 4 | 28 GiB | 1 |
+| rtx5000-56 | 8 | 56 GiB | 2 |
+| rtx5000-84 | 16 | 84 GiB | 3 |
+
+### Discovering Available Flavors
+
+The flavor list above is not exhaustive and availability varies by region. To get the current list of available flavors for your project and region, use the OVH API.
+
+#### Available MKS Regions
+
+As of the API query, the following regions support MKS:
+
+| Region | Location |
+|--------|----------|
+| EU-WEST-PAR | Paris, France (3 AZ) |
+| EU-SOUTH-MIL | Milan, Italy (3 AZ) |
+| GRA7, GRA9, GRA11 | Gravelines, France |
+| SBG5 | Strasbourg, France |
+| RBX-A | Roubaix, France |
+| UK1 | London, UK |
+| DE1 | Frankfurt, Germany |
+| WAW1 | Warsaw, Poland |
+| BHS5 | Beauharnois, Canada |
+| SGP1 | Singapore |
+| SYD1 | Sydney, Australia |
+| AP-SOUTH-MUM-1 | Mumbai, India |
+
+#### Query flavors via API
+
+Use the [OVH API Console](https://eu.api.ovh.com/console/) to query available flavors:
+
+```
+GET /cloud/project/{serviceName}/capabilities/kube/flavors?region={region}
+```
+
+Or for a specific cluster:
+
+```
+GET /cloud/project/{serviceName}/kube/{kubeId}/flavors
+```
+
+#### Example API response
+
+```json
+[
+  {
+    "name": "b3-8",
+    "category": "b",
+    "state": "available",
+    "vCPUs": 2,
+    "gpus": 0,
+    "ram": 8,
+    "isLocalStorage": false
+  },
+  {
+    "name": "t2-45",
+    "category": "t",
+    "state": "available",
+    "vCPUs": 15,
+    "gpus": 1,
+    "ram": 45,
+    "isLocalStorage": false
+  }
+]
+```
 
 ---
 
@@ -294,7 +484,7 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["b2-7", "b2-15"]  # Small instances only
+          values: ["b3-8", "b3-16"]  # Small gen3 instances (Savings Plans compatible)
   limits:
     cpu: 50
     memory: 100Gi
@@ -323,10 +513,10 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["b2-30", "b2-60", "b2-120"]
+          values: ["b3-32", "b3-64", "b3-128"]  # Gen3 (Savings Plans compatible)
         - key: topology.kubernetes.io/zone
           operator: In
-          values: ["gra7-a", "gra7-b", "gra7-c"]  # Multi-AZ
+          values: ["eu-west-par-a", "eu-west-par-b", "eu-west-par-c"]  # Multi-AZ
       expireAfter: 168h  # 7 days - frequent renewal
   limits:
     cpu: 100
@@ -339,6 +529,29 @@ spec:
       - nodes: "0"
         schedule: "0 8 * * 1-5"  # No disruption 8am-6pm weekdays
         duration: 10h
+```
+
+### Memory-intensive Workloads
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: memory-pool
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r3-64", "r3-128", "r3-256", "r3-512"]  # Memory optimized gen3
+  limits:
+    cpu: 200
+    memory: 2000Gi
 ```
 
 ### GPU/ML Configuration
@@ -358,13 +571,39 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["t2-45", "t2-90", "t2-180"]  # GPU instances
+          values: ["l4-90", "l4-180", "l40s-90", "l40s-180"]  # NVIDIA L4/L40S for inference
       taints:
         - key: nvidia.com/gpu
           value: "true"
           effect: NoSchedule
   limits:
     cpu: 100
+```
+
+### AI Training Configuration
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ai-training-pool
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["a100-180", "a100-360", "h100-380", "h100-760"]  # High-end GPUs for training
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+  limits:
+    cpu: 200
 ```
 
 ---
@@ -456,17 +695,17 @@ kubectl get events -n karpenter
 Verify that NodePool requirements allow flavors with enough resources for your pods.
 
 ```yaml
-# Pod requests 4 CPUs but only b2-7 (2 CPUs) is allowed
+# Pod requests 4 CPUs but only b3-8 (2 CPUs) is allowed
 requirements:
   - key: node.kubernetes.io/instance-type
     operator: In
-    values: ["b2-7"]  # Insufficient
+    values: ["b3-8"]  # Insufficient
 
 # Solution: allow larger flavors
 requirements:
   - key: node.kubernetes.io/instance-type
     operator: In
-    values: ["b2-7", "b2-15", "b2-30"]  # OK
+    values: ["b3-8", "b3-16", "b3-32"]  # OK
 ```
 
 ### Error "availabilityZones is mandatory"
@@ -477,7 +716,7 @@ Ensure a zone is specified or the default zone is configured:
 requirements:
   - key: topology.kubernetes.io/zone
     operator: In
-    values: ["gra7-a"]  # Explicit zone
+    values: ["eu-west-par-a"]  # Explicit zone
 ```
 
 ---
@@ -508,7 +747,7 @@ requirements:
 
 Karpenter uses shared pools named: `karpenter-{flavor}-{zone}`
 
-Example: `karpenter-b2-30-gra7-a`
+Example: `karpenter-b3-32-eu-west-par-a`
 
 This approach allows:
 - Reusing existing pools

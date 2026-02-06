@@ -97,7 +97,18 @@ Karpenter requires OVH API credentials to manage node pools. For security, **alw
 
 Follow the [Security Guide](docs/SECURITY.md) to create restricted API credentials.
 
-### 2. Create Kubernetes Secret
+### 2. Install Karpenter Core CRDs
+
+Karpenter requires CRDs to be installed before the controller starts. The OVHNodeClass CRD is installed automatically by Helm, but you need to install the core Karpenter CRDs manually:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/karpenter/main/pkg/apis/crds/karpenter.sh_nodepools.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/karpenter/main/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
+```
+
+> **Note**: CRDs are persistent and survive control plane upgrades. You only need to install them once per cluster.
+
+### 3. Create Kubernetes Secret
 
 ```bash
 kubectl create namespace karpenter
@@ -108,7 +119,7 @@ kubectl create secret generic ovh-credentials -n karpenter \
   --from-literal=consumerKey=YOUR_CONSUMER_KEY
 ```
 
-### 3. Install via Helm
+### 4. Install via Helm
 
 ```bash
 helm install karpenter ./charts \
