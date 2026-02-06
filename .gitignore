@@ -28,9 +28,5 @@ SKILL.md
 # Local development credentials (see CLAUDE.md)
 ovh-karpenter/
 
-# Test configuration (sensitive)
-test/config.env
-test/kubeconfig
-test/ovh.conf
-test/ssh_key
-test/e2e/
+# Test directory (credentials, reports, local config)
+test/
