@@ -19,7 +19,8 @@ Karpenter OVHcloud is an implementation of the Karpenter project for OVHcloud Ma
 
 ## Prerequisites
 
-- Active OVHcloud MKS cluster
+- Active OVHcloud MKS cluster **with at least one existing node**
+  > ⚠️ **Important**: Karpenter runs as a Deployment inside your cluster and needs at least one node to be scheduled on. Your cluster must have a minimum of one node before installing Karpenter. You cannot use Karpenter to provision the initial node(s).
 - OVHcloud API credentials (Application Key, Secret, Consumer Key)
 - `kubectl` and `helm` installed
 - Administrator access to the cluster

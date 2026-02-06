@@ -10,9 +10,9 @@ keywords:
   - autoscaling
   - ovhcloud
   - mks
-home: https://github.com/ovh/karpenter-provider-ovhcloud
+home: https://github.com/antonin-a/karpenter-provider-ovhcloud
 sources:
-  - https://github.com/ovh/karpenter-provider-ovhcloud
+  - https://github.com/antonin-a/karpenter-provider-ovhcloud
   - https://github.com/kubernetes-sigs/karpenter
 maintainers:
-  - name: OVHcloud
+  - name: Antonin Aanchisi

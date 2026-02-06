@@ -66,7 +66,8 @@ This provider uses the MKS Node Pool APIs and is designed exclusively for OVHclo
 Before installing Karpenter, ensure you have:
 
 - An **OVHcloud account** with a Public Cloud project
-- An **MKS cluster** (Managed Kubernetes Service)
+- An **MKS cluster** (Managed Kubernetes Service) with **at least one existing node**
+  > ⚠️ **Important**: Your cluster must have at least one node already running before installing Karpenter. Karpenter itself runs as a Deployment and needs a node to be scheduled on. You cannot use Karpenter to provision the initial node(s).
 - **OVH API credentials** with appropriate permissions (see [Security](#api-permissions-security))
 - **kubectl** configured to access your cluster
 - **Helm** v3.x installed

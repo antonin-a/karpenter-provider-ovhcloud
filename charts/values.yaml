@@ -5,7 +5,7 @@ replicas: 1
 
 # Image configuration
 image:
-  repository: ghcr.io/ovh/karpenter-provider-ovhcloud
+  repository: ghcr.io/antonin-a/karpenter-provider-ovhcloud
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
