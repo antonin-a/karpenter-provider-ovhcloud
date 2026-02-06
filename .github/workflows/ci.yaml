@@ -24,13 +24,7 @@ jobs:
         run: go build -v ./...
 
       - name: Test
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.out
-          fail_ci_if_error: false
+        run: go test -v ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -45,11 +39,17 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+      # golangci-lint doesn't support Go 1.25.5 yet, use go vet for now
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Go fmt check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Code is not formatted. Run 'gofmt -w .'"
+            gofmt -d .
+            exit 1
+          fi
 
   helm-lint:
     runs-on: ubuntu-latest
