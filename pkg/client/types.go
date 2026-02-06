@@ -41,8 +41,8 @@ type NodePool struct {
 
 // NodePoolTemplate defines the template for nodes in a pool
 type NodePoolTemplate struct {
-	Metadata NodePoolTemplateMetadata `json:"metadata,omitempty"`
-	Spec     NodePoolTemplateSpec     `json:"spec,omitempty"`
+	Metadata NodePoolTemplateMetadata `json:"metadata"` // Required by OVHcloud MKS API
+	Spec     NodePoolTemplateSpec     `json:"spec"`     // Required by OVHcloud MKS API
 }
 
 // NodePoolTemplateMetadata defines metadata for nodes
@@ -54,8 +54,8 @@ type NodePoolTemplateMetadata struct {
 
 // NodePoolTemplateSpec defines spec for nodes
 type NodePoolTemplateSpec struct {
-	Taints        []corev1.Taint `json:"taints,omitempty"`
-	Unschedulable bool           `json:"unschedulable,omitempty"`
+	Taints        []corev1.Taint `json:"taints"`        // Required by OVHcloud MKS API, cannot be omitempty
+	Unschedulable bool           `json:"unschedulable"` // Required by OVHcloud MKS API, cannot be omitempty
 }
 
 // CreateNodePoolRequest is the request body for creating a node pool
@@ -123,19 +123,19 @@ type KubeFlavorCapability struct {
 
 // KubeCluster represents an OVH MKS cluster
 type KubeCluster struct {
-	ID                        string   `json:"id"`
-	Name                      string   `json:"name"`
-	Region                    string   `json:"region"`    // e.g., "EU-WEST-PAR" (uppercase)
-	Version                   string   `json:"version"`   // Kubernetes version
-	Status                    string   `json:"status"`    // READY, INSTALLING, etc.
-	ControlPlaneIsUpToDate    bool     `json:"controlPlaneIsUpToDate"`
-	IsUpToDate                bool     `json:"isUpToDate"`
-	NextUpgradeVersions       []string `json:"nextUpgradeVersions,omitempty"`
-	NodesURL                  string   `json:"nodesUrl,omitempty"`
-	PrivateNetworkID          string   `json:"privateNetworkId,omitempty"`
+	ID                          string                `json:"id"`
+	Name                        string                `json:"name"`
+	Region                      string                `json:"region"`  // e.g., "EU-WEST-PAR" (uppercase)
+	Version                     string                `json:"version"` // Kubernetes version
+	Status                      string                `json:"status"`  // READY, INSTALLING, etc.
+	ControlPlaneIsUpToDate      bool                  `json:"controlPlaneIsUpToDate"`
+	IsUpToDate                  bool                  `json:"isUpToDate"`
+	NextUpgradeVersions         []string              `json:"nextUpgradeVersions,omitempty"`
+	NodesURL                    string                `json:"nodesUrl,omitempty"`
+	PrivateNetworkID            string                `json:"privateNetworkId,omitempty"`
 	PrivateNetworkConfiguration *PrivateNetworkConfig `json:"privateNetworkConfiguration,omitempty"`
-	CreatedAt                 string   `json:"createdAt"`
-	UpdatedAt                 string   `json:"updatedAt"`
+	CreatedAt                   string                `json:"createdAt"`
+	UpdatedAt                   string                `json:"updatedAt"`
 }
 
 // PrivateNetworkConfig represents the private network configuration of an MKS cluster

@@ -28,10 +28,10 @@ import (
 
 // PricingCatalog represents the OVH public cloud pricing catalog
 type PricingCatalog struct {
-	CatalogID int             `json:"catalogId"`
-	Locale    PricingLocale   `json:"locale"`
-	Plans     []PricingPlan   `json:"plans"`
-	Addons    []PricingAddon  `json:"addons"`
+	CatalogID int            `json:"catalogId"`
+	Locale    PricingLocale  `json:"locale"`
+	Plans     []PricingPlan  `json:"plans"`
+	Addons    []PricingAddon `json:"addons"`
 }
 
 // PricingLocale contains locale information
@@ -56,15 +56,15 @@ type PricingAddon struct {
 
 // PricingDetail contains pricing information
 type PricingDetail struct {
-	Capacities     []string `json:"capacities"`
-	Description    string   `json:"description"`
-	Duration       string   `json:"duration"`
-	Interval       int      `json:"interval"`
-	MinimumRepeat  int      `json:"minimumRepeat"`
-	MaximumRepeat  *int     `json:"maximumRepeat"`
-	Price          int64    `json:"price"`          // Price in micro-units (e.g., 1000000 = 1.00 EUR)
-	PriceInUcents  int64    `json:"priceInUcents"`  // Price in micro-cents
-	Tax            int64    `json:"tax"`
+	Capacities    []string `json:"capacities"`
+	Description   string   `json:"description"`
+	Duration      string   `json:"duration"`
+	Interval      int      `json:"interval"`
+	MinimumRepeat int      `json:"minimumRepeat"`
+	MaximumRepeat *int     `json:"maximumRepeat"`
+	Price         int64    `json:"price"`         // Price in micro-units (e.g., 1000000 = 1.00 EUR)
+	PriceInUcents int64    `json:"priceInUcents"` // Price in micro-cents
+	Tax           int64    `json:"tax"`
 }
 
 // PricingClient handles OVH pricing API calls
@@ -205,8 +205,8 @@ func (p *PricingClient) extractFlavorPrices() {
 		for _, pricing := range addon.Pricings {
 			// Look for hourly consumption pricing
 			isHourly := strings.Contains(pricing.Duration, "P1H") ||
-			            strings.Contains(pricing.Description, "hour") ||
-			            pricing.Interval == 1
+				strings.Contains(pricing.Description, "hour") ||
+				pricing.Interval == 1
 
 			hasConsumption := false
 			for _, cap := range pricing.Capacities {

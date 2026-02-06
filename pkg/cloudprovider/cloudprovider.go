@@ -506,7 +506,8 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 	}
 
 	// Build taints from NodeClaim spec
-	var taints []corev1.Taint
+	// OVHcloud MKS API requires taints to be set (even if empty)
+	taints := []corev1.Taint{}
 	if nodeClaim != nil && nodeClaim.Spec.Taints != nil {
 		taints = append(taints, nodeClaim.Spec.Taints...)
 	}
