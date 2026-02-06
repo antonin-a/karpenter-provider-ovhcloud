@@ -166,8 +166,8 @@ kubectl rollout restart deployment -n karpenter karpenter
 
 For production environments, consider using:
 
+- **[External Secrets Operator](https://help.ovhcloud.com/csm/fr-secret-manager-external-secret-operator?id=kb_article_view&sysparm_article=KB0074303)** with OVHcloud Secret Manager backend
 - **HashiCorp Vault** with the Vault Agent Injector
-- **External Secrets Operator** with OVHcloud backend
 - **Sealed Secrets** for GitOps workflows
 
 ### 4. Audit Logging
