@@ -48,7 +48,7 @@ type NodePoolTemplate struct {
 // NodePoolTemplateMetadata defines metadata for nodes
 type NodePoolTemplateMetadata struct {
 	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	Annotations map[string]string `json:"annotations"` // Required by OVHcloud MKS API, cannot be omitempty
 }
 
 // NodePoolTemplateSpec defines spec for nodes
