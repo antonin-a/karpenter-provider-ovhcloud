@@ -27,7 +27,7 @@ Karpenter needs the following API permissions to function:
 
 #### Quick Method (Pre-filled URL)
 
-Use this URL with pre-filled permissions (replace `{serviceName}` and `{kubeId}` with your values):
+Use this URL with pre-filled permissions (replace `{serviceName}` (your OVHcloud/Openstack ProjectID) and `{kubeId}` (your MKS cluster ID) with your values):
 
 ```
 https://api.ovh.com/createToken/?GET=/cloud/project/{serviceName}/kube/{kubeId}&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&POST=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&PUT=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&DELETE=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&GET=/cloud/project/{serviceName}/kube/{kubeId}/flavors&GET=/cloud/project/{serviceName}/capabilities/kube/*
@@ -195,15 +195,18 @@ The credentials are invalid or expired. Create a new Consumer Key.
 
 ### Testing Credentials
 
-Test your credentials with a simple API call:
+Test your credentials using the [OVHcloud CLI](https://github.com/ovh/ovhcloud-cli):
 
 ```bash
-# Using ovh-cli
-pip install ovh-cli
-ovh-cli cloud project $SERVICE_NAME kube $KUBE_ID
+# Install OVHcloud CLI (see https://github.com/ovh/ovhcloud-cli for other methods)
+brew install ovh/tap/ovhcloud-cli   # macOS
+# or download from GitHub releases
 
-# Or using curl with signature
-# (See OVH API documentation for signature calculation)
+# Login with your credentials
+ovhcloud login
+
+# Test with a simple authorized API call
+ovhcloud cloud kube get $KUBE_ID --cloud-project $SERVICE_NAME
 ```
 
 ## References
