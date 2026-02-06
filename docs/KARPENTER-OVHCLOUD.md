@@ -532,6 +532,43 @@ Cette approche permet de :
 
 ---
 
+## Savings Plans
+
+OVHcloud propose des [Savings Plans](https://www.ovhcloud.com/en/public-cloud/savings-plan/) pour les instances B3, C3, et R3 (incluant MKS). Ces plans offrent des réductions significatives (jusqu'à 50%) en échange d'un engagement sur une période définie (1-36 mois).
+
+### Points importants
+
+- **Karpenter ne gère pas les Savings Plans** - Vous devez les créer et les gérer manuellement via le Control Panel OVHcloud
+- **Pas d'optimisation automatique** - Karpenter ne prend pas en compte la couverture Savings Plan lors de la sélection des types d'instances
+- **Recommandation** : Si vous avez des Savings Plans, configurez les requirements de votre NodePool pour préférer les types d'instances couverts (b3, c3, r3)
+
+### Configuration recommandée avec Savings Plans
+
+Si vous avez un Savings Plan sur les instances B3, configurez votre NodePool ainsi :
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: savings-plan-pool
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.ovhcloud.sh
+        kind: OVHNodeClass
+        name: default
+      requirements:
+        # Préférer les instances couvertes par votre Savings Plan
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["b3-8", "b3-16", "b3-32", "b3-64", "b3-128"]
+```
+
+Voir la [documentation OVHcloud Savings Plan](https://www.ovhcloud.com/en/public-cloud/savings-plan/) pour plus de détails sur la création et la gestion des Savings Plans.
+
+---
+
 ## Liens utiles
 
 - [Documentation Karpenter officielle](https://karpenter.sh/docs/)

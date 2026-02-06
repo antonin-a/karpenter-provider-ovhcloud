@@ -228,6 +228,7 @@ Karpenter supports all OVHcloud instance types available in MKS:
 | Pool-based scaling | Individual node deletion not supported; Karpenter scales pools |
 | Async pool creation | Node creation has ~2 min latency |
 | Monthly billing | Only available on gen2 instances (b2, c2, d2, r2) |
+| Savings Plans | Must be managed manually via OVHcloud Console; Karpenter is not Savings Plan-aware |
 
 ## Troubleshooting
 
