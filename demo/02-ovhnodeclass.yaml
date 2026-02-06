@@ -27,6 +27,7 @@ spec:
 
   # Monthly billing (~50% savings for 24/7 nodes)
   # Set to true for production long-running workloads
+  # ⚠️ Only available on gen2 instances: b2, c2, d2, r2
   monthlyBilled: false
 
   # Anti-affinity spreads nodes across hypervisors
