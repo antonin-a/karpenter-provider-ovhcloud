@@ -514,6 +514,9 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 		AntiAffinity:  nodeClass.Spec.AntiAffinity,
 	}
 
+	// Set availability zones for multi-zone clusters.
+	// Single-zone MKS clusters reject this field with a 422 error;
+	// we detect that below and retry without it.
 	if zone != "" {
 		req.AvailabilityZones = []string{zone}
 	}
@@ -573,7 +576,16 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 
 	pool, err := c.ovhClient.CreateNodePool(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating pool: %w", err)
+		// OVH MKS single-zone clusters reject the availabilityZones field with a
+		// 422 "not multi-zone compatible" error. Retry without it — the zone is
+		// still captured in the pool name and node template labels.
+		if req.AvailabilityZones != nil && strings.Contains(err.Error(), "not multi-zone compatible") {
+			req.AvailabilityZones = nil
+			pool, err = c.ovhClient.CreateNodePool(ctx, req)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating pool: %w", err)
+		}
 	}
 
 	c.poolCache[poolName] = pool.ID
