@@ -766,7 +766,9 @@ func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclie
 			continue
 		}
 
-		it := buildInstanceType(ctx, flavor, region, pricingClient, false) // false = RAM in MiB
+		// The MKS cluster flavors endpoint (/kube/{id}/flavors) returns RAM in GiB,
+		// same as the capabilities API. Pass ramInGiB=true accordingly.
+		it := buildInstanceType(ctx, flavor, region, pricingClient, true)
 		instanceTypes = append(instanceTypes, it)
 	}
 
@@ -784,12 +786,14 @@ func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region stri
 		scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, flavor.Category),
 	)
 
-	// Build capacity - handle RAM unit conversion
+	// Build capacity.
+	// Both API paths (capabilities API and cluster flavors API) return RAM in GiB.
 	var memoryStr string
 	if ramInGiB {
 		memoryStr = fmt.Sprintf("%dGi", flavor.RAM)
 	} else {
-		// Cluster API returns RAM in MiB, convert to GiB for Kubernetes
+		// Legacy path: if a future API endpoint returns RAM in MiB, pass ramInGiB=false.
+		// Currently unused - both OVH MKS endpoints return GiB.
 		memoryStr = fmt.Sprintf("%dMi", flavor.RAM)
 	}
 

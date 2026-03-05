@@ -77,12 +77,16 @@ type UpdateNodePoolRequest struct {
 	DesiredNodes int `json:"desiredNodes"`
 }
 
-// Flavor represents an OVH instance flavor
+// Flavor represents an OVH instance flavor returned by the cluster-specific
+// /cloud/project/{id}/kube/{id}/flavors endpoint.
+// Note: the RAM field is in GiB (not MiB), matching the capabilities API.
+// This differs from the classic /cloud/project/{id}/flavor endpoint which
+// returns RAM in MiB.
 type Flavor struct {
 	Name      string `json:"name"`
 	Category  string `json:"category"`
 	VCPUs     int    `json:"vcpus"`
-	RAM       int    `json:"ram"`  // in MiB
+	RAM       int    `json:"ram"`  // in GiB (MKS cluster flavors endpoint returns GiB, not MiB)
 	Disk      int    `json:"disk"` // in GiB
 	GPUs      int    `json:"gpus,omitempty"`
 	Available bool   `json:"available"`
