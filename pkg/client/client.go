@@ -305,6 +305,32 @@ func (c *OVHClient) ListKubeFlavors(ctx context.Context, region string) ([]KubeF
 	})
 }
 
+// GetFlavorUUIDMap returns a map of OpenStack flavor UUID → friendly flavor name
+// for the configured region. OVH's CCM labels nodes with the UUID; this map is
+// used to translate back to the friendly name in nodeToNodeClaim so that
+// NodeClaim labels match the InstanceType names used by Karpenter's scheduler.
+func (c *OVHClient) GetFlavorUUIDMap(ctx context.Context) (map[string]string, error) {
+	type flavorEntry struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Region string `json:"region"`
+	}
+	path := fmt.Sprintf("/cloud/project/%s/flavor?region=%s", c.serviceName, strings.ToUpper(c.region))
+	return retryableAPICall(ctx, c.retryConfig, "GetFlavorUUIDMap", func() (map[string]string, error) {
+		var flavors []flavorEntry
+		if err := c.client.GetWithContext(ctx, path, &flavors); err != nil {
+			return nil, fmt.Errorf("listing flavors with UUIDs: %w", err)
+		}
+		m := make(map[string]string, len(flavors))
+		for _, f := range flavors {
+			if f.ID != "" && f.Name != "" {
+				m[f.ID] = f.Name
+			}
+		}
+		return m, nil
+	})
+}
+
 // GetCluster returns the MKS cluster information including the region
 func (c *OVHClient) GetCluster(ctx context.Context) (*KubeCluster, error) {
 	path := c.basePath()
