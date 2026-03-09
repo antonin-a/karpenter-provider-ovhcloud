@@ -28,6 +28,7 @@ import (
 	"github.com/ovh/karpenter-provider-ovhcloud/pkg/client"
 	ovhcloud "github.com/ovh/karpenter-provider-ovhcloud/pkg/cloudprovider"
 	"github.com/ovh/karpenter-provider-ovhcloud/pkg/controllers/nodeclass"
+	"github.com/ovh/karpenter-provider-ovhcloud/pkg/controllers/nodelabels"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/overlay"
 	"sigs.k8s.io/karpenter/pkg/controllers"
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
@@ -117,7 +118,16 @@ func main() {
 	// Create OVHNodeClass controller
 	ovhNodeClassController := nodeclass.NewController(op.GetClient())
 
-	// Get base controllers and append OVHNodeClass controller
+	// Create node-label sync controller.
+	// OVH MKS does not propagate arbitrary pool-template labels onto nodes,
+	// so karpenter.sh/* labels (and topology.kubernetes.io/zone) would be
+	// missing from nodes, causing Karpenter core's RequirementsDrifted check
+	// to fire within seconds of a node joining.  This controller patches the
+	// required labels from the matching NodeClaim onto the node as soon as it
+	// registers, closing that race window.
+	nodeLabelController := nodelabels.NewController(op.GetClient())
+
+	// Get base controllers and append OVH-specific controllers
 	baseControllers := controllers.NewControllers(
 		ctx,
 		op.Manager,
@@ -131,7 +141,7 @@ func main() {
 	)
 
 	op.
-		WithControllers(ctx, append(baseControllers, ovhNodeClassController)...).
+		WithControllers(ctx, append(baseControllers, ovhNodeClassController, nodeLabelController)...).
 		Start(ctx)
 }
 
