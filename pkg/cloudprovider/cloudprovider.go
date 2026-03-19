@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -52,27 +53,35 @@ type CloudProvider struct {
 	mu sync.RWMutex
 	// Cache of pool names to pool IDs
 	poolCache map[string]string
+
+	// flavorUUIDToName maps OpenStack flavor UUID → friendly name.
+	// OVH's CCM labels nodes with the UUID; we translate back in nodeToNodeClaim
+	// so NodeClaim labels use the same friendly names as InstanceType.Name.
+	flavorUUIDToName map[string]string
+	flavorUUIDMapMu  sync.RWMutex
 }
 
 // NewCloudProvider creates a new OVHcloud CloudProvider
 func NewCloudProvider(ctx context.Context, kubeClient client.Client, ovhClient *ovhclient.OVHClient, instanceTypes []*cloudprovider.InstanceType) *CloudProvider {
 	return &CloudProvider{
-		kubeClient:    kubeClient,
-		ovhClient:     ovhClient,
-		pricingClient: ovhclient.NewPricingClient("FR"), // Default to FR subsidiary
-		instanceTypes: instanceTypes,
-		poolCache:     make(map[string]string),
+		kubeClient:       kubeClient,
+		ovhClient:        ovhClient,
+		pricingClient:    ovhclient.NewPricingClient("FR"), // Default to FR subsidiary
+		instanceTypes:    instanceTypes,
+		poolCache:        make(map[string]string),
+		flavorUUIDToName: make(map[string]string),
 	}
 }
 
 // NewCloudProviderWithPricing creates a new OVHcloud CloudProvider with custom pricing client
 func NewCloudProviderWithPricing(ctx context.Context, kubeClient client.Client, ovhClient *ovhclient.OVHClient, pricingClient *ovhclient.PricingClient, instanceTypes []*cloudprovider.InstanceType) *CloudProvider {
 	return &CloudProvider{
-		kubeClient:    kubeClient,
-		ovhClient:     ovhClient,
-		pricingClient: pricingClient,
-		instanceTypes: instanceTypes,
-		poolCache:     make(map[string]string),
+		kubeClient:       kubeClient,
+		ovhClient:        ovhClient,
+		pricingClient:    pricingClient,
+		instanceTypes:    instanceTypes,
+		poolCache:        make(map[string]string),
+		flavorUUIDToName: make(map[string]string),
 	}
 }
 
@@ -148,13 +157,27 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	created.Annotations[v1alpha1.AnnotationOVHNodeID] = node.ID
 	created.Annotations[v1alpha1.AnnotationOVHNodeName] = node.Name
 
-	// Add labels
+	// Populate NodeClaim labels so that Karpenter's RequirementsDrifted check
+	// (areRequirementsDrifted in drift.go) never fires on this NodeClaim.
+	//
+	// PopulateNodeClaimDetails (launch.go) assembles nodeClaim.Labels as:
+	//   lo.Assign(retrieved.Labels, spec.Requirements.Labels(), nodeClaim.Labels)
+	// spec.Requirements.Labels() filters out ALL WellKnownLabels (kubernetes.io/arch,
+	// node.kubernetes.io/instance-type, karpenter.sh/capacity-type, etc.) via
+	// IsRestrictedNodeLabel. Karpenter core pre-sets only karpenter.sh/nodepool and
+	// the nodeclass label before calling Create(), NOT kubernetes.io/arch.
+	//
+	// Every WellKnownLabel in the NodePool requirements MUST appear in retrieved.Labels
+	// or Compatible() will report RequirementsDrifted. This set must stay consistent
+	// with nodeToNodeClaim() below.
 	if created.Labels == nil {
 		created.Labels = make(map[string]string)
 	}
 	created.Labels[corev1.LabelInstanceTypeStable] = flavor
 	created.Labels[corev1.LabelTopologyZone] = zone
 	created.Labels[v1.CapacityTypeLabelKey] = v1.CapacityTypeOnDemand
+	created.Labels[corev1.LabelArchStable] = v1.ArchitectureAmd64
+	created.Labels[corev1.LabelOSStable] = string(corev1.Linux)
 
 	return created, nil
 }
@@ -422,8 +445,26 @@ func (c *CloudProvider) selectFlavor(nodeClaim *v1.NodeClaim) (string, error) {
 	// Find the instance type requirement
 	for _, req := range nodeClaim.Spec.Requirements {
 		if req.Key == corev1.LabelInstanceTypeStable && len(req.Values) > 0 {
-			// Return the first matching instance type
-			return req.Values[0], nil
+			// Pick the cheapest compatible instance type so that Karpenter
+			// minimises cost. Without this, Values[0] is selected, which is
+			// alphabetically first (e.g. "b2-120" before "b2-7") and can
+			// result in vastly over-sized nodes being provisioned.
+			bestFlavor := req.Values[0]
+			bestPrice := math.MaxFloat64
+			for _, name := range req.Values {
+				it, err := c.getInstanceType(name)
+				if err != nil {
+					continue
+				}
+				// Find the minimum price across all offerings for this instance type
+				for _, offering := range it.Offerings {
+					if offering.Price < bestPrice {
+						bestPrice = offering.Price
+						bestFlavor = name
+					}
+				}
+			}
+			return bestFlavor, nil
 		}
 	}
 	return "", fmt.Errorf("no instance type requirement found")
@@ -514,6 +555,9 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 		AntiAffinity:  nodeClass.Spec.AntiAffinity,
 	}
 
+	// Set availability zones for multi-zone clusters.
+	// Single-zone MKS clusters reject this field with a 422 error;
+	// we detect that below and retry without it.
 	if zone != "" {
 		req.AvailabilityZones = []string{zone}
 	}
@@ -573,7 +617,16 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 
 	pool, err := c.ovhClient.CreateNodePool(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating pool: %w", err)
+		// OVH MKS single-zone clusters reject the availabilityZones field with a
+		// 422 "not multi-zone compatible" error. Retry without it — the zone is
+		// still captured in the pool name and node template labels.
+		if req.AvailabilityZones != nil && strings.Contains(err.Error(), "not multi-zone compatible") {
+			req.AvailabilityZones = nil
+			pool, err = c.ovhClient.CreateNodePool(ctx, req)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating pool: %w", err)
+		}
 	}
 
 	c.poolCache[poolName] = pool.ID
@@ -646,6 +699,11 @@ func (c *CloudProvider) nodeToNodeClaim(node *ovhclient.Node, poolID string) (*v
 		zone = strings.ToLower(region) + "-a"
 	}
 
+	// OVH's CCM sets node.kubernetes.io/instance-type to the OpenStack flavor UUID.
+	// InstanceType.Name uses the friendly name (e.g. "c3-4"), so we translate here
+	// to keep NodeClaim labels consistent with what Karpenter's scheduler selected.
+	flavorName := c.uuidToFlavorName(node.Flavor)
+
 	return &v1.NodeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: node.Name,
@@ -655,7 +713,7 @@ func (c *CloudProvider) nodeToNodeClaim(node *ovhclient.Node, poolID string) (*v
 				v1alpha1.AnnotationOVHNodeName: node.Name,
 			},
 			Labels: map[string]string{
-				corev1.LabelInstanceTypeStable: node.Flavor,
+				corev1.LabelInstanceTypeStable: flavorName,
 				corev1.LabelTopologyZone:       zone,
 				v1.CapacityTypeLabelKey:        v1.CapacityTypeOnDemand,
 				corev1.LabelArchStable:         v1.ArchitectureAmd64,
@@ -694,6 +752,43 @@ func (c *CloudProvider) extractZoneFromPoolName(poolID string) string {
 		}
 	}
 	return ""
+}
+
+// ensureFlavorUUIDMap lazily fetches the UUID→friendly-name map from the OVH API.
+// It is safe to call concurrently; the map is only fetched once.
+func (c *CloudProvider) ensureFlavorUUIDMap(ctx context.Context) {
+	c.flavorUUIDMapMu.RLock()
+	loaded := len(c.flavorUUIDToName) > 0
+	c.flavorUUIDMapMu.RUnlock()
+	if loaded {
+		return
+	}
+
+	m, err := c.ovhClient.GetFlavorUUIDMap(ctx)
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("Could not fetch flavor UUID map", "error", err)
+		return
+	}
+
+	c.flavorUUIDMapMu.Lock()
+	for k, v := range m {
+		c.flavorUUIDToName[k] = v
+	}
+	c.flavorUUIDMapMu.Unlock()
+}
+
+// uuidToFlavorName translates an OpenStack flavor UUID to the friendly name
+// (e.g. "00cb3f81-..." → "c3-4"). Returns the input unchanged if the UUID is
+// not in the map (unknown flavor or already a friendly name).
+func (c *CloudProvider) uuidToFlavorName(uuid string) string {
+	c.ensureFlavorUUIDMap(context.Background())
+	c.flavorUUIDMapMu.RLock()
+	name, ok := c.flavorUUIDToName[uuid]
+	c.flavorUUIDMapMu.RUnlock()
+	if ok {
+		return name
+	}
+	return uuid // already a friendly name, or unknown UUID
 }
 
 // ConstructInstanceTypes builds instance types from OVH flavors (uses estimated pricing)
@@ -766,7 +861,9 @@ func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclie
 			continue
 		}
 
-		it := buildInstanceType(ctx, flavor, region, pricingClient, false) // false = RAM in MiB
+		// The MKS cluster flavors endpoint (/kube/{id}/flavors) returns RAM in GiB,
+		// same as the capabilities API. Pass ramInGiB=true accordingly.
+		it := buildInstanceType(ctx, flavor, region, pricingClient, true)
 		instanceTypes = append(instanceTypes, it)
 	}
 
@@ -784,12 +881,14 @@ func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region stri
 		scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, flavor.Category),
 	)
 
-	// Build capacity - handle RAM unit conversion
+	// Build capacity.
+	// Both API paths (capabilities API and cluster flavors API) return RAM in GiB.
 	var memoryStr string
 	if ramInGiB {
 		memoryStr = fmt.Sprintf("%dGi", flavor.RAM)
 	} else {
-		// Cluster API returns RAM in MiB, convert to GiB for Kubernetes
+		// Legacy path: if a future API endpoint returns RAM in MiB, pass ramInGiB=false.
+		// Currently unused - both OVH MKS endpoints return GiB.
 		memoryStr = fmt.Sprintf("%dMi", flavor.RAM)
 	}
 
