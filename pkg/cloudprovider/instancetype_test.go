@@ -156,3 +156,15 @@ func TestMonthlyBillingOnlyForGen2(t *testing.T) {
 		t.Error("monthlyBilled must apply to gen2 flavors")
 	}
 }
+
+func TestResolveFlavorNamePassthrough(t *testing.T) {
+	// Friendly names must never trigger the UUID lookup path
+	c := &CloudProvider{flavorUUIDMap: map[string]string{"0fd4bd01-8974-4479-84a7-e41ee46b1f48": "b3-8"}}
+	c.flavorUUIDOnce.Do(func() {}) // mark as initialized with the stub map
+	if got := c.resolveFlavorName(context.Background(), "b3-16"); got != "b3-16" {
+		t.Errorf("friendly name mangled: %q", got)
+	}
+	if got := c.resolveFlavorName(context.Background(), "0fd4bd01-8974-4479-84a7-e41ee46b1f48"); got != "b3-8" {
+		t.Errorf("UUID not translated: %q", got)
+	}
+}

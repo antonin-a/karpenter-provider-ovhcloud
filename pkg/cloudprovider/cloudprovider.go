@@ -54,6 +54,38 @@ type CloudProvider struct {
 	mu sync.RWMutex
 	// Cache of pool names to pool IDs
 	poolCache map[string]string
+
+	// Lazily-built map of OpenStack flavor UUID -> friendly flavor name.
+	// Some MKS versions report a node's flavor as its OpenStack UUID instead
+	// of the friendly name (field report by @geertvandeweyer, PR #1); NodeClaim
+	// labels must use the friendly name to match InstanceType names.
+	flavorUUIDOnce sync.Once
+	flavorUUIDMap  map[string]string
+}
+
+// resolveFlavorName translates an OpenStack flavor UUID into its friendly name
+// when needed; friendly names pass through unchanged.
+func (c *CloudProvider) resolveFlavorName(ctx context.Context, raw string) string {
+	if len(raw) != 36 || strings.Count(raw, "-") != 4 {
+		return raw // already a friendly name (b3-8, c3-16, ...)
+	}
+	c.flavorUUIDOnce.Do(func() {
+		c.flavorUUIDMap = map[string]string{}
+		novaFlavors, err := c.ovhClient.ListNovaFlavors(ctx, c.ovhClient.GetRegion())
+		if err != nil {
+			log.FromContext(ctx).Error(err, "cannot build flavor UUID map; UUID-labeled nodes will keep raw flavor ids")
+			return
+		}
+		for _, nf := range novaFlavors {
+			if nf.ID != "" && nf.Name != "" {
+				c.flavorUUIDMap[nf.ID] = nf.Name
+			}
+		}
+	})
+	if name, ok := c.flavorUUIDMap[raw]; ok {
+		return name
+	}
+	return raw
 }
 
 // NewCloudProvider creates a new OVHcloud CloudProvider
@@ -569,6 +601,13 @@ func (c *CloudProvider) createPoolForClaim(ctx context.Context, poolName, flavor
 	}
 
 	pool, err := c.ovhClient.CreateNodePool(ctx, req)
+	if err != nil && req.AvailabilityZones != nil && strings.Contains(err.Error(), "not multi-zone compatible") {
+		// Single-zone MKS clusters reject the availabilityZones field (422).
+		// Retry without it; the zone is still reflected in the node labels.
+		// (Reported and fixed by @geertvandeweyer in PR #1.)
+		req.AvailabilityZones = nil
+		pool, err = c.ovhClient.CreateNodePool(ctx, req)
+	}
 	if err != nil {
 		// Surface quota/capacity rejections as InsufficientCapacityError so
 		// Karpenter core backs off and tries another instance type instead of
@@ -655,7 +694,7 @@ func (c *CloudProvider) nodeToNodeClaim(node *ovhclient.Node, poolID string) (*v
 				v1alpha1.AnnotationOVHNodeID:   node.ID,
 				v1alpha1.AnnotationOVHNodeName: node.Name,
 			},
-			Labels: wellKnownLabelsFor(node.Flavor, zone),
+			Labels: wellKnownLabelsFor(c.resolveFlavorName(context.Background(), node.Flavor), zone),
 		},
 		Status: v1.NodeClaimStatus{
 			NodeName:   node.Name,
