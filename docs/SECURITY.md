@@ -19,6 +19,8 @@ Karpenter needs the following API permissions to function:
 | PUT | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*` | Update pools (scale up/down) |
 | DELETE | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*` | Delete node pools |
 | GET | `/cloud/project/{serviceName}/kube/{kubeId}/flavors` | List available instance types |
+| GET | `/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*/nodes` | Map nodes to NodeClaims |
+| GET | `/cloud/project/{serviceName}/flavor` | Flavor disk sizes (Nova; project-level, cannot be cluster-scoped) |
 | GET | `/cloud/project/{serviceName}/capabilities/kube/*` | Get MKS capabilities (optional) |
 
 ## Creating Restricted Credentials
@@ -30,7 +32,7 @@ Karpenter needs the following API permissions to function:
 Use this URL with pre-filled permissions (replace `{serviceName}` (your OVHcloud/Openstack ProjectID) and `{kubeId}` (your MKS cluster ID) with your values):
 
 ```
-https://api.ovh.com/createToken/?GET=/cloud/project/{serviceName}/kube/{kubeId}&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&POST=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&PUT=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&DELETE=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&GET=/cloud/project/{serviceName}/kube/{kubeId}/flavors&GET=/cloud/project/{serviceName}/capabilities/kube/*
+https://api.ovh.com/createToken/?GET=/cloud/project/{serviceName}/kube/{kubeId}&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&GET=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*/nodes&POST=/cloud/project/{serviceName}/kube/{kubeId}/nodepool&PUT=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&DELETE=/cloud/project/{serviceName}/kube/{kubeId}/nodepool/*&GET=/cloud/project/{serviceName}/kube/{kubeId}/flavors&GET=/cloud/project/{serviceName}/flavor
 ```
 
 Or use the helper script to generate this URL for you:

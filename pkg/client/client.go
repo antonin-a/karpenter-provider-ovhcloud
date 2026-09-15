@@ -249,6 +249,21 @@ func (c *OVHClient) ListPoolNodes(ctx context.Context, poolID string) ([]Node, e
 	})
 }
 
+// ListNovaFlavors returns the Public Cloud (Nova) flavors of the project for a
+// region, from /cloud/project/{serviceName}/flavor. This is the only endpoint
+// exposing flavor disk sizes; it requires the extra token permission
+// GET /cloud/project/*/flavor.
+func (c *OVHClient) ListNovaFlavors(ctx context.Context, region string) ([]NovaFlavor, error) {
+	path := fmt.Sprintf("/cloud/project/%s/flavor?region=%s", c.serviceName, region)
+	return retryableAPICall(ctx, c.retryConfig, "ListNovaFlavors", func() ([]NovaFlavor, error) {
+		var flavors []NovaFlavor
+		if err := c.client.GetWithContext(ctx, path, &flavors); err != nil {
+			return nil, fmt.Errorf("listing nova flavors: %w", err)
+		}
+		return flavors, nil
+	})
+}
+
 // ListFlavors returns available flavors for the cluster
 func (c *OVHClient) ListFlavors(ctx context.Context) ([]Flavor, error) {
 	path := fmt.Sprintf("%s/flavors", c.basePath())

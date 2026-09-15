@@ -37,7 +37,46 @@ Karpenter OVHcloud is an implementation of the Karpenter project for OVHcloud Ma
    GET    /cloud/project/*/kube/*/nodepool
    GET    /cloud/project/*/kube/*/nodepool/*/nodes
    GET    /cloud/project/*/kube/*/flavors
+   GET    /cloud/project/*/flavor
    ```
+
+   > `GET /cloud/project/*/flavor` (Nova flavors) is the only endpoint exposing
+   > flavor disk sizes. Without it the provider still works, but instance types
+   > advertise no ephemeral storage: pods requesting `ephemeral-storage` will
+   > never be provisionable.
+   >
+   > ⚠️ Watch for trailing whitespace when pasting rules into the token creation
+   > form: a rule like `/cloud/project/*/flavor ` (trailing space) never matches
+   > and silently returns 403.
+
+### Least-privilege tokens (recommended)
+
+The wildcard rules above grant access to **every project and every MKS cluster**
+of the account. To limit the blast radius of a leaked key, scope the rules to
+the exact project and cluster Karpenter manages, especially the mutating verbs:
+
+```
+GET    /cloud/project/<projectId>/kube/<clusterId>
+GET    /cloud/project/<projectId>/kube/<clusterId>/flavors
+GET    /cloud/project/<projectId>/kube/<clusterId>/nodepool
+GET    /cloud/project/<projectId>/kube/<clusterId>/nodepool/*/nodes
+GET    /cloud/project/<projectId>/flavor
+POST   /cloud/project/<projectId>/kube/<clusterId>/nodepool
+PUT    /cloud/project/<projectId>/kube/<clusterId>/nodepool/*
+DELETE /cloud/project/<projectId>/kube/<clusterId>/nodepool/*
+```
+
+Replace `<projectId>` with your Public Cloud project ID and `<clusterId>` with
+the MKS cluster ID (both also go into the `OVHNodeClass`). Notes:
+
+- `GET /cloud/project/<projectId>/flavor` cannot be scoped below the project:
+  Nova flavors are a project-level resource.
+- With cluster-scoped rules, the region-wide capabilities endpoint
+  (`/capabilities/kube/flavors`) is no longer reachable; the provider
+  automatically falls back to the cluster flavors endpoint, which serves the
+  same catalog for the cluster's region.
+- One token per cluster also means revoking a cluster's token cannot affect
+  the others.
 
 See [SECURITY.md](SECURITY.md) for detailed instructions on creating restricted credentials.
 
@@ -131,7 +170,16 @@ spec:
     namespace: karpenter
 
   # Monthly billing (optional, default: false)
-  # Only available on gen2 instances: b2, c2, d2, r2
+  # Only available on gen2 instances (b2, c2, d2, r2). Gen3+ instances are
+  # hourly-billed and discounted through Savings Plans instead; the MKS API
+  # rejects monthly billing for them. The provider therefore applies
+  # monthlyBilled ONLY when the selected flavor is gen2, and silently bills
+  # gen3+ nodes hourly (a log line records the downgrade). Mixing gen2 and
+  # gen3 flavors in one NodePool with monthlyBilled: true is supported: each
+  # node gets the billing mode its generation allows.
+  # Note: monthly billing rarely makes sense for Karpenter-managed nodes,
+  # which are created and consolidated dynamically; prefer hourly + Savings
+  # Plans unless your NodePool holds long-lived, stable capacity.
   monthlyBilled: false
 
   # Anti-affinity between nodes in the same pool (optional, default: false)
@@ -249,6 +297,35 @@ spec:
 | Gen3 | b3, c3, r3 | **Savings Plans** (up to 50% savings) | Purchase via [OVHcloud Console](https://www.ovhcloud.com/en/public-cloud/savings-plan/) |
 
 > **Important**: Monthly billing and Savings Plans are mutually exclusive options for different instance generations.
+
+#### Savings-Plans-aware provisioning (roadmap)
+
+The provider currently optimizes on public catalog prices and is not aware of
+your Savings Plans. The OVHcloud API does expose everything needed to change
+that:
+
+- `GET /cloud/project/{serviceName}/usage/plans` returns, per flavor, the
+  committed size (`cumulPlanSize`), the consumed size (`consumptionSize`),
+  the plan `coverage` and `utilization`, and the covered `resourceIds`.
+- `GET /services/{serviceId}/savingsPlans/subscribed` lists the subscribed
+  plans (flavor, size, period, status; unit prices via `.../periods`), with
+  `serviceId` resolved from `GET /services?resourceName={serviceName}`.
+
+The intended design: when a flavor has unused committed capacity
+(`cumulPlanSize - consumptionSize > 0`), its marginal cost is effectively zero
+(the commitment is paid regardless), so offerings for that flavor should be
+priced below any uncovered flavor until the commitment is filled. This makes
+Karpenter consolidate INTO your Savings Plans instead of ignoring them.
+
+Extra token permissions required for this feature:
+
+```
+GET /cloud/project/*/usage/plans
+GET /services
+GET /services/*/savingsPlans/subscribed
+GET /services/*/savingsPlans/subscribed/*
+GET /services/*/savingsPlans/subscribed/*/periods
+```
 
 #### General Purpose (b series)
 

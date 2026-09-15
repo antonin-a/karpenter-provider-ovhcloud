@@ -25,5 +25,10 @@ const (
 	PoolNamePrefix = "karpenter-"
 
 	// DefaultDesiredNodes is the default number of nodes for a new pool
+	// (always 1: one NodeClaim = one single-node pool)
 	DefaultDesiredNodes = 1
+
+	// MaxPoolNameLength bounds pool names so that node hostnames
+	// (pool name + two generated suffixes) stay within limits
+	MaxPoolNameLength = 40
 )

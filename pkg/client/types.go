@@ -102,6 +102,20 @@ type Node struct {
 	IsUpToDate bool   `json:"isUpToDate"`
 }
 
+// NovaFlavor is a Public Cloud (Nova) flavor from /cloud/project/{sn}/flavor.
+// It is the only API source for the disk size of a flavor: the Kubernetes
+// flavor endpoints (cloud.kube.Flavor) carry no disk field.
+type NovaFlavor struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Region    string `json:"region"`
+	Disk      int    `json:"disk"` // GB
+	RAM       int    `json:"ram"`  // GiB
+	VCPUs     int    `json:"vcpus"`
+	OSType    string `json:"osType"`
+	Available bool   `json:"available"`
+}
+
 // Credentials holds OVH API credentials
 type Credentials struct {
 	Endpoint          string

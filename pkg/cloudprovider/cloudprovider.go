@@ -20,6 +20,8 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -106,20 +108,19 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	}
 
 	zone := c.selectZone(nodeClaim)
-	poolName := c.poolName(flavor, zone)
+	poolName := c.poolNameForClaim(nodeClaim)
 
 	logger.Info("Creating node", "flavor", flavor, "zone", zone, "poolName", poolName)
 
-	// Get or create the pool with labels and taints from NodeClaim
-	// Also get the existing node IDs BEFORE scaling up, so we can identify the NEW node
-	pool, existingNodeIDs, err := c.getOrCreatePool(ctx, poolName, flavor, zone, nodeClass, nodeClaim)
+	// One NodeClaim maps to exactly one single-node pool
+	pool, err := c.createPoolForClaim(ctx, poolName, flavor, zone, nodeClass, nodeClaim)
 	if err != nil {
 		RecordNodeProvisioning(flavor, zone, "pool_error")
-		return nil, fmt.Errorf("getting/creating pool: %w", err)
+		return nil, err
 	}
 
-	// Wait for a new node to appear (one that wasn't in existingNodeIDs)
-	node, err := c.waitForNewNode(ctx, pool.ID, existingNodeIDs)
+	// The pool is dedicated to this claim: its single node is ours
+	node, err := c.waitForNewNode(ctx, pool.ID, map[string]bool{})
 	if err != nil {
 		RecordNodeProvisioning(flavor, zone, "timeout")
 		return nil, fmt.Errorf("waiting for new node: %w", err)
@@ -148,96 +149,103 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	created.Annotations[v1alpha1.AnnotationOVHNodeID] = node.ID
 	created.Annotations[v1alpha1.AnnotationOVHNodeName] = node.Name
 
-	// Add labels
+	// Add labels. Karpenter core never stamps well-known labels itself
+	// (Requirements.Labels() skips them): the CloudProvider MUST resolve them
+	// here, or any NodePool requirement on arch/os marks every NodeClaim
+	// RequirementsDrifted and core replaces nodes in a loop.
 	if created.Labels == nil {
 		created.Labels = make(map[string]string)
 	}
-	created.Labels[corev1.LabelInstanceTypeStable] = flavor
-	created.Labels[corev1.LabelTopologyZone] = zone
-	created.Labels[v1.CapacityTypeLabelKey] = v1.CapacityTypeOnDemand
+	for k, v := range wellKnownLabelsFor(flavor, zone) {
+		created.Labels[k] = v
+	}
 
 	return created, nil
 }
 
-// Delete removes a NodeClaim by deleting the specific node from OVH
-// If the node is the last one in the pool, the entire pool is deleted
+// isGen2Flavor reports whether a flavor belongs to the gen2 families
+// (b2-*, c2-*, r2-*, d2-*, ...): the only generation supporting monthly
+// billing. Gen3+ instances are hourly-billed and discounted through Savings
+// Plans instead; the MKS API rejects monthlyBilled for them.
+func isGen2Flavor(name string) bool {
+	dash := strings.Index(name, "-")
+	return dash >= 2 && name[dash-1] == '2'
+}
+
+// effectiveMonthlyBilled resolves the monthly-billing setting that can
+// actually be applied to a pool of the given flavor.
+func effectiveMonthlyBilled(nodeClass *v1alpha1.OVHNodeClass, flavor string) bool {
+	return nodeClass.Spec.MonthlyBilled && isGen2Flavor(flavor)
+}
+
+// wellKnownLabelsFor returns the well-known node labels the provider resolves
+// for a given flavor and zone. All MKS flavors are linux/amd64 today.
+func wellKnownLabelsFor(flavor, zone string) map[string]string {
+	return map[string]string{
+		corev1.LabelInstanceTypeStable: flavor,
+		corev1.LabelTopologyZone:       zone,
+		v1.CapacityTypeLabelKey:        v1.CapacityTypeOnDemand,
+		corev1.LabelArchStable:         v1.ArchitectureAmd64,
+		corev1.LabelOSStable:           string(corev1.Linux),
+	}
+}
+
+// Delete removes a NodeClaim by deleting its dedicated single-node pool.
+// The pool-per-NodeClaim mapping makes this a strict 1:1 operation: no
+// scale-down arithmetic, no ambiguity about which node OVH removes.
 func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *v1.NodeClaim) error {
 	logger := log.FromContext(ctx)
 	startTime := time.Now()
 
 	poolID := nodeClaim.Annotations[v1alpha1.AnnotationOVHPoolID]
-	nodeID := nodeClaim.Annotations[v1alpha1.AnnotationOVHNodeID]
-
 	if poolID == "" {
-		RecordNodeDeletion("no_pool_id")
-		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("no pool ID annotation"))
-	}
-
-	// Get the current pool state
-	pool, err := c.ovhClient.GetNodePool(ctx, poolID)
-	if err != nil {
-		// Pool might already be deleted
-		RecordNodeDeletion("pool_not_found")
-		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("pool not found: %w", err))
-	}
-
-	logger.Info("Deleting node", "nodeID", nodeID, "poolID", poolID, "currentNodes", pool.CurrentNodes)
-
-	// If this is the last node in the pool, delete the entire pool
-	if pool.CurrentNodes <= 1 {
-		if err := c.ovhClient.DeleteNodePool(ctx, poolID); err != nil {
-			RecordNodeDeletion("delete_error")
-			RecordPoolOperation("delete", "error")
-			return fmt.Errorf("deleting pool: %w", err)
-		}
-		RecordPoolOperation("delete", "success")
-		// Clear from cache
-		c.mu.Lock()
-		for name, id := range c.poolCache {
-			if id == poolID {
-				delete(c.poolCache, name)
-				break
-			}
-		}
-		c.mu.Unlock()
-	} else if nodeID != "" {
-		// Delete the specific node using the OVH API
-		// This is more precise than scaling down, which lets OVH choose which node to remove
-		if err := c.ovhClient.DeleteNode(ctx, nodeID); err != nil {
-			// If specific node deletion fails, fall back to scaling down
-			logger.Info("Specific node deletion failed, falling back to scale down", "error", err)
-			_, err := c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
-				DesiredNodes: pool.DesiredNodes - 1,
-			})
-			if err != nil {
-				RecordNodeDeletion("scale_down_error")
-				RecordPoolOperation("scale_down", "error")
-				return fmt.Errorf("scaling down pool: %w", err)
-			}
-			RecordPoolOperation("scale_down", "success")
+		// Fall back to resolving the pool by its deterministic name, so claims
+		// that lost their annotation (e.g. created before a crash) still clean up
+		if pool := c.findPoolByName(ctx, c.poolNameForClaim(nodeClaim)); pool != nil {
+			poolID = pool.ID
 		} else {
-			RecordPoolOperation("delete_node", "success")
+			RecordNodeDeletion("no_pool_id")
+			return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("no pool found for claim %s", nodeClaim.Name))
 		}
-	} else {
-		// No node ID, fall back to scaling down
-		logger.Info("No node ID annotation, falling back to scale down")
-		_, err := c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
-			DesiredNodes: pool.DesiredNodes - 1,
-		})
-		if err != nil {
-			RecordNodeDeletion("scale_down_error")
-			RecordPoolOperation("scale_down", "error")
-			return fmt.Errorf("scaling down pool: %w", err)
-		}
-		RecordPoolOperation("scale_down", "success")
 	}
 
-	// Record successful deletion metrics
+	logger.Info("Deleting node pool for claim", "poolID", poolID, "nodeClaim", nodeClaim.Name)
+
+	if err := c.ovhClient.DeleteNodePool(ctx, poolID); err != nil {
+		if isNotFoundErr(err) {
+			RecordNodeDeletion("pool_not_found")
+			return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("pool already deleted: %w", err))
+		}
+		RecordNodeDeletion("delete_error")
+		RecordPoolOperation("delete", "error")
+		return fmt.Errorf("deleting pool: %w", err)
+	}
+	RecordPoolOperation("delete", "success")
+
 	duration := time.Since(startTime).Seconds()
 	RecordNodeDeletion("success")
 	RecordNodeDeletionDuration(duration)
 
 	return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("instance terminated"))
+}
+
+// findPoolByName returns the Karpenter-managed pool with the given name, or nil
+func (c *CloudProvider) findPoolByName(ctx context.Context, name string) *ovhclient.NodePool {
+	pools, err := c.ovhClient.ListNodePools(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := range pools {
+		if pools[i].Name == name {
+			return &pools[i]
+		}
+	}
+	return nil
+}
+
+// isNotFoundErr reports whether an OVH API error is a 404
+func isNotFoundErr(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "404") || strings.Contains(strings.ToLower(err.Error()), "not found"))
 }
 
 // Get retrieves a NodeClaim by provider ID
@@ -342,14 +350,18 @@ func (c *CloudProvider) IsDrifted(ctx context.Context, nodeClaim *v1.NodeClaim) 
 		return "", nil
 	}
 
-	// Check monthly billing drift
-	// This is a billing configuration that can't be changed on existing pools
-	if pool.MonthlyBilled != nodeClass.Spec.MonthlyBilled {
+	// Check monthly billing drift against the EFFECTIVE desired value: monthly
+	// billing only exists on gen2 flavors (gen3+ uses Savings Plans and the MKS
+	// API rejects monthlyBilled for them, "monthly billing not supported yet").
+	// Comparing against the raw spec would mark every gen3 NodeClaim of a
+	// monthlyBilled NodeClass as drifted, recreating the replacement loop.
+	desiredMonthly := effectiveMonthlyBilled(nodeClass, nodeClaim.Labels[corev1.LabelInstanceTypeStable])
+	if pool.MonthlyBilled != desiredMonthly {
 		logger.Info("Drift detected: MonthlyBillingChanged",
 			"nodeClaim", nodeClaim.Name,
 			"pool", pool.Name,
 			"poolMonthlyBilled", pool.MonthlyBilled,
-			"nodeClassMonthlyBilled", nodeClass.Spec.MonthlyBilled)
+			"desiredMonthlyBilled", desiredMonthly)
 		RecordDriftDetection("MonthlyBillingChanged")
 		return "MonthlyBillingChanged", nil
 	}
@@ -409,24 +421,63 @@ func (c *CloudProvider) resolveNodeClass(ctx context.Context, nodeClaim *v1.Node
 	return nodeClass, nil
 }
 
-func (c *CloudProvider) poolName(flavor, zone string) string {
-	// Sanitize flavor name for pool naming
-	safeFlavor := strings.ReplaceAll(flavor, ".", "-")
-	if zone != "" {
-		return fmt.Sprintf("%s%s-%s", PoolNamePrefix, safeFlavor, zone)
+// poolNameForClaim derives the dedicated pool name for a NodeClaim.
+// The mapping is one NodeClaim to one single-node pool, so the pool carries
+// the claim's name: karpenter-{nodeclaim-name}. Names longer than
+// MaxPoolNameLength are truncated with a hash suffix to stay unique while
+// keeping node hostnames within limits.
+func (c *CloudProvider) poolNameForClaim(nodeClaim *v1.NodeClaim) string {
+	name := PoolNamePrefix + strings.ToLower(nodeClaim.Name)
+	if len(name) <= MaxPoolNameLength {
+		return name
 	}
-	return fmt.Sprintf("%s%s", PoolNamePrefix, safeFlavor)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(nodeClaim.Name))
+	suffix := fmt.Sprintf("-%08x", h.Sum32())
+	return name[:MaxPoolNameLength-len(suffix)] + suffix
 }
 
+// selectFlavor picks the CHEAPEST flavor among the NodeClaim's instance-type
+// requirement values. Requirement values are an unordered set (they arrive
+// lexicographically: "b3-16" sorts before "b3-8"), so taking Values[0] launches
+// an oversized node that consolidation immediately replaces, wasting a full
+// node create/delete cycle per provisioning.
 func (c *CloudProvider) selectFlavor(nodeClaim *v1.NodeClaim) (string, error) {
-	// Find the instance type requirement
+	var candidates []string
 	for _, req := range nodeClaim.Spec.Requirements {
 		if req.Key == corev1.LabelInstanceTypeStable && len(req.Values) > 0 {
-			// Return the first matching instance type
-			return req.Values[0], nil
+			candidates = req.Values
+			break
 		}
 	}
-	return "", fmt.Errorf("no instance type requirement found")
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no instance type requirement found")
+	}
+
+	best := ""
+	bestPrice := math.MaxFloat64
+	for _, name := range candidates {
+		it, err := c.getInstanceType(name)
+		if err != nil {
+			continue // unknown flavor in this region
+		}
+		price := math.MaxFloat64
+		for _, o := range it.Offerings {
+			if o.Available && o.Price < price {
+				price = o.Price
+			}
+		}
+		if price < bestPrice {
+			bestPrice = price
+			best = name
+		}
+	}
+	if best == "" {
+		// None of the requested flavors is known here: keep the previous
+		// behavior as a last resort rather than failing the launch
+		return candidates[0], nil
+	}
+	return best, nil
 }
 
 func (c *CloudProvider) selectZone(nodeClaim *v1.NodeClaim) string {
@@ -441,130 +492,76 @@ func (c *CloudProvider) selectZone(nodeClaim *v1.NodeClaim) string {
 	return strings.ToLower(region) + "-a"
 }
 
-func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass, nodeClaim *v1.NodeClaim) (*ovhclient.NodePool, map[string]bool, error) {
+// createPoolForClaim creates the dedicated single-node pool backing a NodeClaim.
+// Creations are serialized (mutex) to avoid bursty quota churn; a pool that
+// already exists with the claim's name is reused (crash recovery).
+func (c *CloudProvider) createPoolForClaim(ctx context.Context, poolName, flavor, zone string, nodeClass *v1alpha1.OVHNodeClass, nodeClaim *v1.NodeClaim) (*ovhclient.NodePool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Helper function to get existing node IDs from a pool
-	getExistingNodeIDs := func(poolID string) map[string]bool {
-		existingNodeIDs := make(map[string]bool)
-		nodes, err := c.ovhClient.ListPoolNodes(ctx, poolID)
-		if err == nil {
-			for _, node := range nodes {
-				existingNodeIDs[node.ID] = true
-			}
-		}
-		return existingNodeIDs
+	// Idempotency: reuse a leftover pool from an interrupted Create
+	if pool := c.findPoolByName(ctx, poolName); pool != nil {
+		return pool, nil
 	}
 
-	// Check cache first
-	if poolID, ok := c.poolCache[poolName]; ok {
-		pool, err := c.ovhClient.GetNodePool(ctx, poolID)
-		if err == nil {
-			// Get existing node IDs BEFORE scaling up
-			existingNodeIDs := getExistingNodeIDs(poolID)
-
-			// Scale up the pool
-			_, err = c.ovhClient.UpdateNodePool(ctx, poolID, &ovhclient.UpdateNodePoolRequest{
-				DesiredNodes: pool.DesiredNodes + 1,
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("scaling up pool: %w", err)
-			}
-			pool.DesiredNodes++
-			return pool, existingNodeIDs, nil
-		}
-		// Pool might have been deleted, remove from cache
-		delete(c.poolCache, poolName)
+	monthly := effectiveMonthlyBilled(nodeClass, flavor)
+	if nodeClass.Spec.MonthlyBilled && !monthly {
+		log.FromContext(ctx).Info("Ignoring monthlyBilled for non-gen2 flavor: gen3+ instances are billed hourly and discounted through Savings Plans (the MKS API rejects monthly billing for them)",
+			"flavor", flavor, "nodeClass", nodeClass.Name)
 	}
 
-	// Check if pool exists in OVH
-	pools, err := c.ovhClient.ListNodePools(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("listing pools: %w", err)
-	}
-
-	for _, pool := range pools {
-		if pool.Name == poolName {
-			// Update cache
-			c.poolCache[poolName] = pool.ID
-
-			// Get existing node IDs BEFORE scaling up
-			existingNodeIDs := getExistingNodeIDs(pool.ID)
-
-			// Scale up
-			_, err = c.ovhClient.UpdateNodePool(ctx, pool.ID, &ovhclient.UpdateNodePoolRequest{
-				DesiredNodes: pool.DesiredNodes + 1,
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("scaling up existing pool: %w", err)
-			}
-			pool.DesiredNodes++
-			return &pool, existingNodeIDs, nil
-		}
-	}
-
-	// Create new pool
 	req := &ovhclient.CreateNodePoolRequest{
 		Name:          poolName,
 		FlavorName:    flavor,
 		DesiredNodes:  DefaultDesiredNodes,
-		Autoscale:     false,
-		MonthlyBilled: nodeClass.Spec.MonthlyBilled,
+		Autoscale:     false, // never enable the native autoscaler on Karpenter-managed pools
+		MonthlyBilled: monthly,
 		AntiAffinity:  nodeClass.Spec.AntiAffinity,
 	}
-
 	if zone != "" {
 		req.AvailabilityZones = []string{zone}
 	}
 
-	// Build labels for the node template
-	// These labels are applied to nodes by MKS and are critical for Karpenter to match nodes to NodeClaims
-	labels := make(map[string]string)
-
-	// Standard Karpenter management labels
-	labels["managed-by"] = "karpenter"
-
-	// Standard Kubernetes labels that Karpenter uses for scheduling decisions
-	// These MUST match what we set on the NodeClaim for drift detection to work correctly
-	labels[corev1.LabelInstanceTypeStable] = flavor
-	labels[corev1.LabelTopologyZone] = zone
-	labels[v1.CapacityTypeLabelKey] = v1.CapacityTypeOnDemand
-	labels[corev1.LabelArchStable] = v1.ArchitectureAmd64
-	labels[corev1.LabelOSStable] = string(corev1.Linux)
-
-	// Add Karpenter-specific labels
-	labels["karpenter.sh/registered"] = "true"
-
-	// Add the NodePool name from the NodeClaim if available
+	// Node labels applied by MKS at join time. Well-known labels must match
+	// what Create() returns on the NodeClaim, or core detects RequirementsDrifted.
+	labels := map[string]string{"managed-by": "karpenter"}
+	for k, v := range wellKnownLabelsFor(flavor, zone) {
+		labels[k] = v
+	}
 	if nodeClaim != nil && nodeClaim.Labels != nil {
 		if nodePoolName, ok := nodeClaim.Labels[v1.NodePoolLabelKey]; ok {
 			labels[v1.NodePoolLabelKey] = nodePoolName
 		}
 	}
-
-	// Add user-defined tags from NodeClass
 	for k, v := range nodeClass.Spec.Tags {
 		labels[k] = v
 	}
 
-	// Build taints from NodeClaim spec
-	// OVHcloud MKS API requires taints to be set (even if empty)
+	// Taints: only the claim's own taints. The Karpenter startup taint
+	// (karpenter.sh/unregistered) MUST NOT go through the pool template: MKS
+	// enforces the template continuously, so it re-adds the taint every time
+	// Karpenter core removes it at registration, deadlocking initialization.
+	// Without the startup taint, core still registers the node (with a warning
+	// event); the bootstrap scheduling race is a documented trade-off until MKS
+	// supports bootstrap-only taints.
+	// The MKS API also requires a non-empty taint value (empty is legal in
+	// Kubernetes): default to "true"; core re-syncs exact claim taints at
+	// registration.
 	taints := []corev1.Taint{}
 	if nodeClaim != nil && nodeClaim.Spec.Taints != nil {
-		taints = append(taints, nodeClaim.Spec.Taints...)
+		for _, t := range nodeClaim.Spec.Taints {
+			if t.Value == "" {
+				t.Value = "true"
+			}
+			taints = append(taints, t)
+		}
 	}
-
-	// Build annotations and finalizers for the node template
-	// OVHcloud MKS API requires these fields to be set (even if empty)
-	annotations := make(map[string]string)
-	finalizers := []string{}
 
 	req.Template = &ovhclient.NodePoolTemplate{
 		Metadata: ovhclient.NodePoolTemplateMetadata{
 			Labels:      labels,
-			Annotations: annotations,
-			Finalizers:  finalizers,
+			Annotations: map[string]string{},
+			Finalizers:  []string{},
 		},
 		Spec: ovhclient.NodePoolTemplateSpec{
 			Taints: taints,
@@ -573,12 +570,16 @@ func (c *CloudProvider) getOrCreatePool(ctx context.Context, poolName, flavor, z
 
 	pool, err := c.ovhClient.CreateNodePool(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating pool: %w", err)
+		// Surface quota/capacity rejections as InsufficientCapacityError so
+		// Karpenter core backs off and tries another instance type instead of
+		// hot-looping pool creations (quota-reservation churn).
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "quota") || strings.Contains(msg, "capacity") || strings.Contains(msg, "403") || strings.Contains(msg, "409") {
+			return nil, cloudprovider.NewInsufficientCapacityError(fmt.Errorf("creating pool: %w", err))
+		}
+		return nil, fmt.Errorf("creating pool: %w", err)
 	}
-
-	c.poolCache[poolName] = pool.ID
-	// For a new pool, there are no existing nodes
-	return pool, make(map[string]bool), nil
+	return pool, nil
 }
 
 func (c *CloudProvider) waitForNewNode(ctx context.Context, poolID string, existingNodeIDs map[string]bool) (*ovhclient.Node, error) {
@@ -654,13 +655,7 @@ func (c *CloudProvider) nodeToNodeClaim(node *ovhclient.Node, poolID string) (*v
 				v1alpha1.AnnotationOVHNodeID:   node.ID,
 				v1alpha1.AnnotationOVHNodeName: node.Name,
 			},
-			Labels: map[string]string{
-				corev1.LabelInstanceTypeStable: node.Flavor,
-				corev1.LabelTopologyZone:       zone,
-				v1.CapacityTypeLabelKey:        v1.CapacityTypeOnDemand,
-				corev1.LabelArchStable:         v1.ArchitectureAmd64,
-				corev1.LabelOSStable:           string(corev1.Linux),
-			},
+			Labels: wellKnownLabelsFor(node.Flavor, zone),
 		},
 		Status: v1.NodeClaimStatus{
 			NodeName:   node.Name,
@@ -707,11 +702,27 @@ func ConstructInstanceTypesWithPricing(ctx context.Context, ovhClient *ovhclient
 	logger := log.FromContext(ctx)
 	region := ovhClient.GetRegion()
 
-	// Try capabilities API first (more complete and region-aware)
+	// Neither Kubernetes flavor endpoint (capabilities or cluster) exposes disk
+	// sizes: only the Nova endpoint /cloud/project/{sn}/flavor does. Without it,
+	// instance types advertise no ephemeral storage and pods requesting
+	// ephemeral-storage are never provisionable.
+	diskByName := map[string]int{}
+	if novaFlavors, err := ovhClient.ListNovaFlavors(ctx, region); err == nil {
+		for _, nf := range novaFlavors {
+			if nf.Disk > 0 {
+				diskByName[nf.Name] = nf.Disk
+			}
+		}
+		logger.Info("Retrieved flavor disk sizes from Nova API", "count", len(diskByName))
+	} else {
+		logger.Error(err, "Cannot list Nova flavors (token may lack GET /cloud/project/*/flavor): instance types will advertise no ephemeral storage")
+	}
+
+	// Try capabilities API first (region-aware)
 	capFlavors, err := ovhClient.ListKubeFlavors(ctx, region)
 	if err == nil && len(capFlavors) > 0 {
 		logger.Info("Retrieved flavors from OVH Capabilities API", "region", region, "count", len(capFlavors))
-		return buildInstanceTypesFromCapabilities(ctx, capFlavors, region, pricingClient)
+		return buildInstanceTypesFromCapabilities(ctx, capFlavors, region, pricingClient, diskByName)
 	}
 
 	// Fallback to cluster-specific endpoint
@@ -724,11 +735,11 @@ func ConstructInstanceTypesWithPricing(ctx context.Context, ovhClient *ovhclient
 
 	logger.Info("Retrieved flavors from cluster API", "count", len(flavors))
 
-	return buildInstanceTypesFromClusterFlavors(ctx, flavors, region, pricingClient)
+	return buildInstanceTypesFromClusterFlavors(ctx, flavors, region, pricingClient, diskByName)
 }
 
 // buildInstanceTypesFromCapabilities builds instance types from capabilities API response
-func buildInstanceTypesFromCapabilities(ctx context.Context, capFlavors []ovhclient.KubeFlavorCapability, region string, pricingClient *ovhclient.PricingClient) ([]*cloudprovider.InstanceType, error) {
+func buildInstanceTypesFromCapabilities(ctx context.Context, capFlavors []ovhclient.KubeFlavorCapability, region string, pricingClient *ovhclient.PricingClient, diskByName map[string]int) ([]*cloudprovider.InstanceType, error) {
 	var instanceTypes []*cloudprovider.InstanceType
 
 	for _, capFlavor := range capFlavors {
@@ -737,27 +748,25 @@ func buildInstanceTypesFromCapabilities(ctx context.Context, capFlavors []ovhcli
 			continue
 		}
 
-		// Convert to internal Flavor type for compatibility
-		// Note: Capabilities API returns RAM in GiB, not MiB
 		flavor := ovhclient.Flavor{
 			Name:      capFlavor.Name,
 			Category:  capFlavor.Category,
 			VCPUs:     capFlavor.VCPUs,
-			RAM:       capFlavor.RAM, // Already in GiB from capabilities API
+			RAM:       capFlavor.RAM,
+			Disk:      diskByName[capFlavor.Name],
 			GPUs:      capFlavor.GPUs,
 			Available: true,
 			State:     capFlavor.State,
 		}
 
-		it := buildInstanceType(ctx, flavor, region, pricingClient, true) // true = RAM already in GiB
-		instanceTypes = append(instanceTypes, it)
+		instanceTypes = append(instanceTypes, buildInstanceType(ctx, flavor, region, pricingClient))
 	}
 
 	return instanceTypes, nil
 }
 
 // buildInstanceTypesFromClusterFlavors builds instance types from cluster-specific flavors endpoint
-func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclient.Flavor, region string, pricingClient *ovhclient.PricingClient) ([]*cloudprovider.InstanceType, error) {
+func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclient.Flavor, region string, pricingClient *ovhclient.PricingClient, diskByName map[string]int) ([]*cloudprovider.InstanceType, error) {
 	var instanceTypes []*cloudprovider.InstanceType
 
 	for _, flavor := range flavors {
@@ -765,16 +774,20 @@ func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclie
 		if flavor.VCPUs == 0 {
 			continue
 		}
-
-		it := buildInstanceType(ctx, flavor, region, pricingClient, false) // false = RAM in MiB
-		instanceTypes = append(instanceTypes, it)
+		if flavor.Disk == 0 {
+			flavor.Disk = diskByName[flavor.Name]
+		}
+		instanceTypes = append(instanceTypes, buildInstanceType(ctx, flavor, region, pricingClient))
 	}
 
 	return instanceTypes, nil
 }
 
-// buildInstanceType creates a single InstanceType from a Flavor
-func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region string, pricingClient *ovhclient.PricingClient, ramInGiB bool) *cloudprovider.InstanceType {
+// buildInstanceType creates a single InstanceType from a Flavor.
+// Per the official schema (cloud.kube.Flavor), RAM is in GB on BOTH the
+// capabilities and cluster flavor endpoints. Disk comes from the Nova endpoint
+// (merged upstream into flavor.Disk); 0 means unknown.
+func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region string, pricingClient *ovhclient.PricingClient) *cloudprovider.InstanceType {
 	// Build requirements including GPU if present
 	requirements := scheduling.NewRequirements(
 		scheduling.NewRequirement(corev1.LabelInstanceTypeStable, corev1.NodeSelectorOpIn, flavor.Name),
@@ -784,18 +797,12 @@ func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region stri
 		scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, flavor.Category),
 	)
 
-	// Build capacity - handle RAM unit conversion
-	var memoryStr string
-	if ramInGiB {
-		memoryStr = fmt.Sprintf("%dGi", flavor.RAM)
-	} else {
-		// Cluster API returns RAM in MiB, convert to GiB for Kubernetes
-		memoryStr = fmt.Sprintf("%dMi", flavor.RAM)
-	}
+	// RAM is in GB on all kube flavor endpoints (cloud.kube.Flavor schema)
+	ramMiB := int64(flavor.RAM) * 1024
 
 	capacity := corev1.ResourceList{
 		corev1.ResourceCPU:              resource.MustParse(fmt.Sprintf("%d", flavor.VCPUs)),
-		corev1.ResourceMemory:           resource.MustParse(memoryStr),
+		corev1.ResourceMemory:           mksNodeMemoryCapacity(ramMiB),
 		corev1.ResourcePods:             resource.MustParse("110"),
 		corev1.ResourceEphemeralStorage: resource.MustParse(fmt.Sprintf("%dGi", flavor.Disk)),
 	}
@@ -810,11 +817,44 @@ func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region stri
 		Requirements: requirements,
 		Capacity:     capacity,
 		Offerings:    buildOfferingsWithPricing(ctx, flavor, region, pricingClient),
-		Overhead: &cloudprovider.InstanceTypeOverhead{
-			KubeReserved: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("100Mi"),
-			},
+		Overhead:     mksOverhead(flavor.VCPUs, flavor.Disk),
+	}
+}
+
+// vmMemoryOverheadPercent is the share of flavor RAM consumed before the
+// kubelet even reports capacity (kernel, firmware, page tables). Observed on
+// b3-8: flavor 8192Mi vs node capacity 7752Mi, i.e. ~5.4%. Erring slightly
+// high is safe (scheduler underestimates); erring low causes provisioning
+// oscillation (a flavor is picked, the pods don't fit, a bigger one replaces it).
+const vmMemoryOverheadPercent = 0.055
+
+// mksNodeMemoryCapacity converts a flavor's advertised RAM into the memory
+// capacity the node will actually report.
+func mksNodeMemoryCapacity(ramMiB int64) resource.Quantity {
+	usable := int64(float64(ramMiB) * (1 - vmMemoryOverheadPercent))
+	return resource.MustParse(fmt.Sprintf("%dMi", usable))
+}
+
+// mksOverhead models the resources MKS reserves on every node
+// (docs: "Reserved resources per node"), validated against live nodes:
+//   - CPU: 15% of the first core + 0.5% of every core (b3-8: 150m+10m=160m, exact)
+//   - Memory: fixed 1590 MB kube-reserved + 250Mi eviction threshold
+//     (b3-8: 1840Mi observed, exact)
+//   - Ephemeral storage: log10(diskGB)*10 GB + 10% of disk
+func mksOverhead(vcpus, diskGB int) *cloudprovider.InstanceTypeOverhead {
+	cpuMilli := 150 + 5*int64(vcpus)
+	storageGB := int64(0)
+	if diskGB > 0 {
+		storageGB = int64(math.Log10(float64(diskGB))*10 + float64(diskGB)*0.10)
+	}
+	return &cloudprovider.InstanceTypeOverhead{
+		KubeReserved: corev1.ResourceList{
+			corev1.ResourceCPU:              *resource.NewMilliQuantity(cpuMilli, resource.DecimalSI),
+			corev1.ResourceMemory:           resource.MustParse("1590Mi"),
+			corev1.ResourceEphemeralStorage: *resource.NewQuantity(storageGB*1024*1024*1024, resource.BinarySI),
+		},
+		EvictionThreshold: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("250Mi"),
 		},
 	}
 }
@@ -824,7 +864,7 @@ func buildInstanceType(ctx context.Context, flavor ovhclient.Flavor, region stri
 func estimatePrice(flavor ovhclient.Flavor) float64 {
 	// Rough estimate: $0.02 per vCPU + $0.005 per GiB RAM
 	cpuPrice := float64(flavor.VCPUs) * 0.02
-	ramPrice := float64(flavor.RAM) / 1024 * 0.005
+	ramPrice := float64(flavor.RAM) * 0.005 // RAM in GB
 
 	// Add GPU pricing if present
 	if flavor.GPUs > 0 {

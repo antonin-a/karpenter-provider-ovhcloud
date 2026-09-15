@@ -27,6 +27,7 @@ import (
 
 	"github.com/ovh/karpenter-provider-ovhcloud/pkg/client"
 	ovhcloud "github.com/ovh/karpenter-provider-ovhcloud/pkg/cloudprovider"
+	"github.com/ovh/karpenter-provider-ovhcloud/pkg/controllers/garbagecollection"
 	"github.com/ovh/karpenter-provider-ovhcloud/pkg/controllers/nodeclass"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/overlay"
 	"sigs.k8s.io/karpenter/pkg/controllers"
@@ -35,7 +36,7 @@ import (
 )
 
 // Build version - updated to invalidate Docker cache
-const buildVersion = "0.1.0-20260206"
+const buildVersion = "0.2.0"
 
 const (
 	// ClusterNameAnnotation is the annotation on nodes that contains the MKS cluster ID
@@ -117,6 +118,9 @@ func main() {
 	// Create OVHNodeClass controller
 	ovhNodeClassController := nodeclass.NewController(op.GetClient())
 
+	// Create the pool garbage-collection controller (orphan karpenter-* pools)
+	poolGCController := garbagecollection.NewController(op.GetClient(), ovhClient)
+
 	// Get base controllers and append OVHNodeClass controller
 	baseControllers := controllers.NewControllers(
 		ctx,
@@ -131,7 +135,7 @@ func main() {
 	)
 
 	op.
-		WithControllers(ctx, append(baseControllers, ovhNodeClassController)...).
+		WithControllers(ctx, append(baseControllers, ovhNodeClassController, poolGCController)...).
 		Start(ctx)
 }
 
