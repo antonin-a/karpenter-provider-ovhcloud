@@ -24,9 +24,9 @@ import (
 
 	"github.com/ovh/karpenter-provider-ovhcloud/pkg/apis/v1alpha1"
 	ovhclient "github.com/ovh/karpenter-provider-ovhcloud/pkg/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Reference values observed on a live MKS node (testKarpenter, EU-WEST-PAR,
