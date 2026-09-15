@@ -36,7 +36,7 @@ import (
 )
 
 // Build version - updated to invalidate Docker cache
-const buildVersion = "0.2.0"
+const buildVersion = "0.2.1"
 
 const (
 	// ClusterNameAnnotation is the annotation on nodes that contains the MKS cluster ID
