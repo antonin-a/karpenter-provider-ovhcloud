@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -193,6 +194,17 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *v1.NodeClaim) (*v
 	}
 
 	return created, nil
+}
+
+// gpuFlavorsEnabled gates GPU flavors behind an explicit opt-in.
+// GPU pool creation on MKS takes 40 to 80 minutes (measured 2026-09-16,
+// GRA11, all four families), far beyond Karpenter core's non-configurable
+// 15-minute registration timeout: claims are killed and replaced in a loop,
+// spawning expensive GPU pools that cannot be deleted while INSTALLING.
+// Until the platform or upstream constraints move, GPU flavors are excluded
+// from instance types by default so no NodePool can trigger that churn.
+func gpuFlavorsEnabled() bool {
+	return os.Getenv("OVH_ENABLE_GPU_FLAVORS") == "true"
 }
 
 // isGen2Flavor reports whether a flavor belongs to the gen2 families
@@ -786,6 +798,9 @@ func buildInstanceTypesFromCapabilities(ctx context.Context, capFlavors []ovhcli
 		if capFlavor.State != "available" || capFlavor.VCPUs == 0 {
 			continue
 		}
+		if capFlavor.GPUs > 0 && !gpuFlavorsEnabled() {
+			continue
+		}
 
 		flavor := ovhclient.Flavor{
 			Name:      capFlavor.Name,
@@ -811,6 +826,9 @@ func buildInstanceTypesFromClusterFlavors(ctx context.Context, flavors []ovhclie
 	for _, flavor := range flavors {
 		// Skip flavors without CPU info
 		if flavor.VCPUs == 0 {
+			continue
+		}
+		if flavor.GPUs > 0 && !gpuFlavorsEnabled() {
 			continue
 		}
 		if flavor.Disk == 0 {

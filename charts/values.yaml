@@ -6,7 +6,7 @@ replicas: 1
 # Image configuration
 image:
   repository: ghcr.io/antonin-a/karpenter-provider-ovhcloud
-  tag: "0.2.1"
+  tag: "0.2.2"
   pullPolicy: IfNotPresent
 
 # OVH API configuration
@@ -20,6 +20,12 @@ ovh:
   # OVHcloud region (optional - will be auto-detected from MKS cluster API if not set)
   # Examples: EU-WEST-PAR, GRA7, SBG5
   region: ""
+  # EXPERIMENTAL and NOT recommended: expose GPU flavors to Karpenter.
+  # MKS GPU pool creation takes 40-80 minutes, far beyond Karpenter core's
+  # non-configurable 15-minute registration timeout: NodeClaims are killed and
+  # replaced in a loop, spawning expensive GPU pools that cannot be deleted
+  # while INSTALLING. Prefer a static (non-Karpenter) GPU node pool.
+  enableGpuFlavors: false
 
 # Credentials configuration
 credentials:

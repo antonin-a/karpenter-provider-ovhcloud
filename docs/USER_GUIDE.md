@@ -412,6 +412,15 @@ High I/O performance instances:
 | i1-90 | 16 | 90 GiB |
 | i1-180 | 32 | 180 GiB |
 
+> ⚠️ **GPU flavors are excluded from Karpenter by default** (since v0.2.2).
+> Measured on 2026-09-16 (GRA11, all four families), MKS GPU pool creation
+> takes 40 to 80 minutes, far beyond Karpenter core's non-configurable
+> 15-minute registration timeout: NodeClaims get killed and replaced in a
+> loop, spawning expensive GPU pools that cannot be deleted while INSTALLING.
+> Run GPU workloads on a static (non-Karpenter) node pool instead. If you
+> understand the risk, set `ovh.enableGpuFlavors: true`
+> (env `OVH_ENABLE_GPU_FLAVORS=true`) to re-expose them.
+
 #### GPU - Tesla V100 (t series)
 
 | Flavor | vCPUs | RAM | GPUs |

@@ -168,3 +168,17 @@ func TestResolveFlavorNamePassthrough(t *testing.T) {
 		t.Errorf("UUID not translated: %q", got)
 	}
 }
+
+func TestGPUFlavorsExcludedByDefault(t *testing.T) {
+	// GPU pool creation (40-80 min measured) exceeds Karpenter core's
+	// non-configurable 15-min registration timeout: exposing GPU flavors
+	// causes an expensive churn loop, so they are opt-in only
+	t.Setenv("OVH_ENABLE_GPU_FLAVORS", "")
+	if gpuFlavorsEnabled() {
+		t.Error("GPU flavors must be disabled by default")
+	}
+	t.Setenv("OVH_ENABLE_GPU_FLAVORS", "true")
+	if !gpuFlavorsEnabled() {
+		t.Error("OVH_ENABLE_GPU_FLAVORS=true must enable GPU flavors")
+	}
+}

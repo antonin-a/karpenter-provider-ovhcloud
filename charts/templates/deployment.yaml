@@ -51,6 +51,8 @@ spec:
               value: "1.19.0-0"
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            - name: OVH_ENABLE_GPU_FLAVORS
+              value: {{ .Values.ovh.enableGpuFlavors | default false | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           ports:
