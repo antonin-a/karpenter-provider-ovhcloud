@@ -71,6 +71,11 @@ spec:
               value: {{ .Values.logLevel | quote }}
             - name: OVH_ENABLE_GPU_FLAVORS
               value: {{ .Values.ovh.enableGpuFlavors | default false | quote }}
+            {{- with .Values.featureGates }}
+            # Karpenter core's feature gates, e.g. NodeOverlay=true.
+            - name: FEATURE_GATES
+              value: {{ include "karpenter-ovhcloud.featureGates" . | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           ports:

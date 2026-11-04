@@ -58,3 +58,14 @@ Service account name
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+featureGates map rendered as Karpenter's FEATURE_GATES: Name=bool,... (sorted)
+*/}}
+{{- define "karpenter-ovhcloud.featureGates" -}}
+{{- $gates := list -}}
+{{- range $name, $enabled := . -}}
+{{- $gates = append $gates (printf "%s=%t" $name $enabled) -}}
+{{- end -}}
+{{- join "," $gates -}}
+{{- end -}}

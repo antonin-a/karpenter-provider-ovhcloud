@@ -1,0 +1,24 @@
+suite: Karpenter feature gates
+templates:
+  - templates/deployment.yaml
+set:
+  ovh.serviceName: project
+tests:
+  - it: passes featureGates to the controller as FEATURE_GATES
+    set:
+      featureGates:
+        NodeOverlay: true
+        SpotToSpotConsolidation: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FEATURE_GATES
+            value: NodeOverlay=true,SpotToSpotConsolidation=false
+  - it: leaves Karpenter's defaults alone when none are set
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FEATURE_GATES
+          any: true
