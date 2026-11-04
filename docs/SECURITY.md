@@ -25,6 +25,36 @@ Karpenter needs the following API permissions to function:
 
 ## Creating Restricted Credentials
 
+### Option A (recommended): IAM service account (OAuth2)
+
+Since v0.3.0, the provider authenticates with an OVHcloud IAM service account
+(OAuth2 client credentials): owned by the account rather than a person, scoped
+by an IAM policy, and no consumer key to validate in a browser. Put `clientId`
+and `clientSecret` in the credentials Secret instead of the application keys.
+
+An IAM policy for Karpenter needs only these actions on the Public Cloud
+project (as reported from live usage; not yet validated as an exact minimal
+set):
+
+```
+publicCloudProject:apiovh:kube/get
+publicCloudProject:apiovh:kube/nodepool/get
+publicCloudProject:apiovh:kube/nodepool/create
+publicCloudProject:apiovh:kube/nodepool/edit
+publicCloudProject:apiovh:kube/nodepool/delete
+publicCloudProject:apiovh:kube/nodepool/nodes/get
+publicCloudProject:apiovh:kube/node/get
+publicCloudProject:apiovh:kube/node/delete
+publicCloudProject:apiovh:flavor/get
+publicCloudProject:apiovh:capabilities/kube/flavors/get
+publicCloudProject:apiovh:capabilities/kube/regions/get
+```
+
+Note: `credentials.create: true` in the chart does not generate the
+clientId/clientSecret keys; create the Secret yourself (recommended anyway).
+
+### Option B: application keys (legacy)
+
 ### Step 1: Create API Keys via OVHcloud Console
 
 #### Quick Method (Pre-filled URL)
