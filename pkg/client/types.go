@@ -17,6 +17,8 @@ limitations under the License.
 package client
 
 import (
+	"errors"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -122,6 +124,28 @@ type Credentials struct {
 	ApplicationKey    string
 	ApplicationSecret string
 	ConsumerKey       string
+	// ClientID and ClientSecret authenticate as an OVHcloud IAM service
+	// account (OAuth2 client credentials) instead of application keys.
+	ClientID     string
+	ClientSecret string
+}
+
+// Validate requires exactly one complete kind of credential: the
+// application key trio, or a service account's client ID and secret.
+func (c *Credentials) Validate() error {
+	appKeys := c.ApplicationKey != "" || c.ApplicationSecret != "" || c.ConsumerKey != ""
+	oauth2 := c.ClientID != "" || c.ClientSecret != ""
+	switch {
+	case appKeys && oauth2:
+		return errors.New("set either OVH_APPLICATION_KEY/OVH_APPLICATION_SECRET/OVH_CONSUMER_KEY or OVH_CLIENT_ID/OVH_CLIENT_SECRET, not both")
+	case oauth2 && (c.ClientID == "" || c.ClientSecret == ""):
+		return errors.New("OVH_CLIENT_ID and OVH_CLIENT_SECRET must both be set")
+	case oauth2:
+		return nil
+	case c.ApplicationKey == "" || c.ApplicationSecret == "" || c.ConsumerKey == "":
+		return errors.New("OVH credentials not set: set OVH_CLIENT_ID and OVH_CLIENT_SECRET, or OVH_APPLICATION_KEY, OVH_APPLICATION_SECRET and OVH_CONSUMER_KEY")
+	}
+	return nil
 }
 
 // KubeFlavorCapability represents a flavor from the OVH capabilities API

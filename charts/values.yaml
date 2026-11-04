@@ -27,7 +27,9 @@ ovh:
   # while INSTALLING. Prefer a static (non-Karpenter) GPU node pool.
   enableGpuFlavors: false
 
-# Credentials configuration
+# Credentials configuration. The Secret holds either an OVHcloud IAM service
+# account's clientId and clientSecret (OAuth2, recommended) or the
+# applicationKey, applicationSecret and consumerKey of an API application.
 credentials:
   # Create secret from values (not recommended for production)
   create: false

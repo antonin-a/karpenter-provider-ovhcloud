@@ -148,12 +148,18 @@ type OVHClient struct {
 
 // NewOVHClient creates a new OVH API client
 func NewOVHClient(creds *Credentials, serviceName, kubeID, region string) (*OVHClient, error) {
-	client, err := ovh.NewClient(
-		creds.Endpoint,
-		creds.ApplicationKey,
-		creds.ApplicationSecret,
-		creds.ConsumerKey,
-	)
+	var client *ovh.Client
+	var err error
+	if creds.ClientID != "" {
+		client, err = ovh.NewOAuth2Client(creds.Endpoint, creds.ClientID, creds.ClientSecret)
+	} else {
+		client, err = ovh.NewClient(
+			creds.Endpoint,
+			creds.ApplicationKey,
+			creds.ApplicationSecret,
+			creds.ConsumerKey,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("creating OVH client: %w", err)
 	}

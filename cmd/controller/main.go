@@ -53,14 +53,16 @@ func main() {
 		ApplicationKey:    os.Getenv("OVH_APPLICATION_KEY"),
 		ApplicationSecret: os.Getenv("OVH_APPLICATION_SECRET"),
 		ConsumerKey:       os.Getenv("OVH_CONSUMER_KEY"),
+		ClientID:          os.Getenv("OVH_CLIENT_ID"),
+		ClientSecret:      os.Getenv("OVH_CLIENT_SECRET"),
 	}
 
 	serviceName := os.Getenv("OVH_SERVICE_NAME")
 	kubeID := os.Getenv("OVH_KUBE_ID") // Optional - will be auto-detected if not set
 	region := os.Getenv("OVH_REGION")  // Optional - will be auto-detected if not set
 
-	if creds.ApplicationKey == "" || creds.ApplicationSecret == "" || creds.ConsumerKey == "" {
-		logger.Error(nil, "OVH credentials not set. Please set OVH_APPLICATION_KEY, OVH_APPLICATION_SECRET, and OVH_CONSUMER_KEY")
+	if err := creds.Validate(); err != nil {
+		logger.Error(err, "invalid OVH credentials")
 		os.Exit(1)
 	}
 

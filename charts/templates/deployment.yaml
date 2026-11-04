@@ -37,16 +37,34 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.credentials.secretName }}
                   key: applicationKey
+                  optional: true
             - name: OVH_APPLICATION_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.credentials.secretName }}
                   key: applicationSecret
+                  optional: true
             - name: OVH_CONSUMER_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.credentials.secretName }}
                   key: consumerKey
+                  optional: true
+            # Or an OVHcloud IAM service account (OAuth2 client credentials).
+            # The Secret holds one kind or the other, so every key is optional;
+            # the controller refuses to start without a complete set.
+            - name: OVH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.secretName }}
+                  key: clientId
+                  optional: true
+            - name: OVH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.secretName }}
+                  key: clientSecret
+                  optional: true
             - name: KUBERNETES_MIN_VERSION
               value: "1.19.0-0"
             - name: LOG_LEVEL
